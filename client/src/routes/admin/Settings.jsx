@@ -1,0 +1,70 @@
+import { useEffect, useState } from 'react';
+import { api } from '../../api/client';
+import TopBar from '../../components/TopBar';
+import BottomNav from '../../components/BottomNav';
+
+export default function Settings() {
+  const [settings, setSettings] = useState(null);
+  const [boardmanRate, setBoardmanRate] = useState('');
+  const [platformRate, setPlatformRate] = useState('');
+  const [windowHours, setWindowHours] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/admin/settings').then((d) => {
+      setSettings(d.settings);
+      setBoardmanRate(String(d.settings.boardmanCommissionRate * 100));
+      setPlatformRate(String(d.settings.platformCommissionRate * 100));
+      setWindowHours(String(d.settings.resultConfirmationWindowHours));
+    });
+  }, []);
+
+  const onSave = async (e) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    try {
+      await api.patch('/admin/settings', {
+        boardmanCommissionRate: Number(boardmanRate) / 100,
+        platformCommissionRate: Number(platformRate) / 100,
+        resultConfirmationWindowHours: Number(windowHours),
+      });
+      setMessage('Settings updated. This only affects competitions created from now on.');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (!settings) return <div className="page">Loading...</div>;
+
+  return (
+    <>
+      <TopBar title="System Settings" />
+      <div className="page">
+        <p className="muted">
+          These are platform-wide defaults. Changing them never rewrites commissions already calculated on
+          past or in-flight competitions — each competition locks in the rates that were active when it was created.
+        </p>
+        {error && <div className="error-banner">{error}</div>}
+        {message && <div className="success-banner">{message}</div>}
+        <form onSubmit={onSave}>
+          <div className="field">
+            <label>Default Boardman commission (%)</label>
+            <input type="number" step="0.1" value={boardmanRate} onChange={(e) => setBoardmanRate(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Platform commission (%)</label>
+            <input type="number" step="0.1" value={platformRate} onChange={(e) => setPlatformRate(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Result confirmation window (hours)</label>
+            <input type="number" step="0.5" value={windowHours} onChange={(e) => setWindowHours(e.target.value)} />
+          </div>
+          <button className="btn btn-primary" type="submit">Save Settings</button>
+        </form>
+      </div>
+      <BottomNav role="ADMIN" />
+    </>
+  );
+}

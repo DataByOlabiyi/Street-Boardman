@@ -1,0 +1,348 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  BETTER
+  BOARDMAN
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum BoardmanApprovalStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum WalletType {
+  BETTER
+  BOARDMAN
+  PLATFORM
+}
+
+enum WalletTransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  BET_STAKE
+  BET_WIN
+  COMMISSION
+  REFUND
+  ADJUSTMENT
+}
+
+enum CompetitionCategory {
+  FOOTBALL
+  SNOOKER
+  FIGHT
+  TABLE_GAME
+  OTHER
+}
+
+enum CompetitionStatus {
+  DRAFT
+  BETTING_OPEN
+  BETTING_CLOSED
+  PENDING_CONFIRMATION
+  RESULT_CONFIRMED
+  DISPUTED
+  PAYOUT_PROCESSING
+  COMPLETED
+  CANCELLED_REFUNDED
+}
+
+enum BetStatus {
+  OPEN
+  WON
+  LOST
+  REFUNDED
+  VOID
+}
+
+enum ResultStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  DISPUTED
+  CANCELLED
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+enum DepositProvider {
+  DEMO
+  PAYSTACK
+}
+
+enum DepositStatus {
+  PENDING
+  SUCCESSFUL
+  FAILED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PROCESSED
+  REJECTED
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED_CONFIRMED
+  RESOLVED_CANCELLED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  role         Role
+  fullName     String
+  phone        String     @unique
+  email        String?
+  passwordHash String
+  pinHash      String?
+  status       UserStatus @default(ACTIVE)
+  isDemo       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  boardmanProfile BoardmanProfile?
+  wallet          Wallet?
+  bets            Bet[]
+  deposits        Deposit[]
+  withdrawals     Withdrawal[]
+  disputesRaised  Dispute[]         @relation("DisputeRaisedBy")
+  auditLogs       AuditLog[]
+
+  @@index([role])
+}
+
+model BoardmanProfile {
+  id                     String                  @id @default(cuid())
+  userId                 String                  @unique
+  user                   User                    @relation(fields: [userId], references: [id])
+  businessLocation       String
+  kycDocumentUrl         String?
+  approvalStatus         BoardmanApprovalStatus  @default(PENDING_APPROVAL)
+  commissionRateOverride Float?
+  approvedByAdminId      String?
+  approvedAt             DateTime?
+  createdAt              DateTime                @default(now())
+
+  competitions Competition[]
+
+  @@index([approvalStatus])
+}
+
+model Wallet {
+  id         String     @id @default(cuid())
+  userId     String     @unique
+  user       User       @relation(fields: [userId], references: [id])
+  walletType WalletType
+  balance    Decimal    @default(0) @db.Decimal(14, 2)
+  currency   String     @default("NGN")
+  isDemo     Boolean    @default(true)
+  createdAt  DateTime   @default(now())
+
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id             String                @id @default(cuid())
+  walletId       String
+  wallet         Wallet                @relation(fields: [walletId], references: [id])
+  type           WalletTransactionType
+  amount         Decimal               @db.Decimal(14, 2)
+  balanceBefore  Decimal               @db.Decimal(14, 2)
+  balanceAfter   Decimal               @db.Decimal(14, 2)
+  referenceType  String
+  referenceId    String
+  note           String?
+  createdAt      DateTime              @default(now())
+
+  @@index([walletId])
+  @@index([referenceType, referenceId])
+}
+
+model Competition {
+  id                      String              @id @default(cuid())
+  boardmanProfileId       String
+  boardmanProfile         BoardmanProfile     @relation(fields: [boardmanProfileId], references: [id])
+  title                   String
+  description             String?
+  category                CompetitionCategory
+  status                  CompetitionStatus   @default(DRAFT)
+  bettingDeadline         DateTime
+  boardmanCommissionRate  Float
+  platformCommissionRate  Float
+  isDemo                  Boolean             @default(true)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  participants CompetitionParticipant[]
+  betOptions   BetOption[]
+  result       Result?
+  commission   Commission?
+  disputes     Dispute[]
+
+  @@index([status])
+  @@index([boardmanProfileId])
+}
+
+model CompetitionParticipant {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id])
+  name          String
+  imageUrl      String?
+}
+
+model BetOption {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id])
+  label         String
+  participantId String?
+  totalStaked   Decimal     @default(0) @db.Decimal(14, 2)
+
+  bets Bet[]
+}
+
+model Bet {
+  id               String      @id @default(cuid())
+  betCode          String      @unique
+  betterId         String
+  better           User        @relation(fields: [betterId], references: [id])
+  competitionId    String
+  betOptionId      String
+  betOption        BetOption   @relation(fields: [betOptionId], references: [id])
+  stake            Decimal     @db.Decimal(14, 2)
+  potentialPayout  Decimal     @db.Decimal(14, 2)
+  status           BetStatus   @default(OPEN)
+  placedAt         DateTime    @default(now())
+
+  payout Payout?
+
+  @@index([betterId])
+  @@index([competitionId])
+  @@index([status])
+}
+
+model Result {
+  id                    String       @id @default(cuid())
+  competitionId         String       @unique
+  competition           Competition  @relation(fields: [competitionId], references: [id])
+  submittedByUserId     String
+  winningOptionId       String
+  finalScore            String?
+  evidenceUrls          String[]
+  notes                 String?
+  status                ResultStatus @default(PENDING_CONFIRMATION)
+  confirmationDeadline  DateTime
+  confirmedByAdminId    String?
+  confirmedAt           DateTime?
+  createdAt             DateTime     @default(now())
+}
+
+model Payout {
+  id             String       @id @default(cuid())
+  betId          String       @unique
+  bet            Bet          @relation(fields: [betId], references: [id])
+  amount         Decimal      @db.Decimal(14, 2)
+  status         PayoutStatus @default(PENDING)
+  idempotencyKey String       @unique
+  processedAt    DateTime?
+  createdAt      DateTime     @default(now())
+}
+
+model Commission {
+  id              String      @id @default(cuid())
+  competitionId   String      @unique
+  competition     Competition @relation(fields: [competitionId], references: [id])
+  boardmanId      String
+  totalStakePool  Decimal     @db.Decimal(14, 2)
+  boardmanAmount  Decimal     @db.Decimal(14, 2)
+  platformAmount  Decimal     @db.Decimal(14, 2)
+  calculatedAt    DateTime    @default(now())
+}
+
+model Deposit {
+  id                 String           @id @default(cuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id])
+  amount             Decimal          @db.Decimal(14, 2)
+  provider           DepositProvider
+  providerReference  String?          @unique
+  status             DepositStatus    @default(PENDING)
+  verifiedAt         DateTime?
+  createdAt          DateTime         @default(now())
+
+  @@index([userId])
+}
+
+model Withdrawal {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id])
+  amount       Decimal          @db.Decimal(14, 2)
+  destination  Json
+  status       WithdrawalStatus @default(PENDING)
+  requestedAt  DateTime         @default(now())
+  processedAt  DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Dispute {
+  id                 String        @id @default(cuid())
+  competitionId      String
+  competition        Competition   @relation(fields: [competitionId], references: [id])
+  raisedByUserId     String
+  raisedByUser       User          @relation("DisputeRaisedBy", fields: [raisedByUserId], references: [id])
+  reason             String
+  status             DisputeStatus @default(OPEN)
+  resolvedByAdminId  String?
+  resolvedAt         DateTime?
+  createdAt          DateTime      @default(now())
+
+  @@index([competitionId])
+  @@index([status])
+}
+
+model AuditLog {
+  id            String    @id @default(cuid())
+  actorUserId   String?
+  actor         User?     @relation(fields: [actorUserId], references: [id])
+  action        String
+  entityType    String
+  entityId      String
+  beforeState   Json?
+  afterState    Json?
+  createdAt     DateTime  @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+}
+
+model SystemSetting {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  value           String
+  updatedByAdminId String?
+  updatedAt       DateTime @updatedAt
+}
