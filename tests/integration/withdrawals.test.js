@@ -15,6 +15,20 @@ async function setupFundedBetter(amount = 20000) {
   return { agent, userId: res.body.user.id };
 }
 
+let adminPhoneCounter = 0;
+async function setupAdmin() {
+  adminPhoneCounter += 1;
+  const admin = await prisma.user.create({
+    data: {
+      role: 'ADMIN',
+      fullName: 'Withdrawal Admin',
+      phone: `0813${String(adminPhoneCounter).padStart(7, '0')}`,
+      passwordHash: 'x',
+    },
+  });
+  return admin.id;
+}
+
 beforeEach(async () => {
   await resetDatabase();
 });
@@ -26,6 +40,7 @@ afterAll(async () => {
 describe('withdrawalService — atomic approve/reject (TASK-002)', () => {
   it('never applies two refunds when reject is called concurrently on the same withdrawal', async () => {
     const { userId } = await setupFundedBetter(10000);
+    const adminId = await setupAdmin();
     const withdrawal = await withdrawalService.requestWithdrawal(userId, 5000, {
       bankName: 'Test Bank',
       accountNumber: '0123456789',
@@ -33,8 +48,8 @@ describe('withdrawalService — atomic approve/reject (TASK-002)', () => {
     });
 
     const results = await Promise.allSettled([
-      withdrawalService.rejectWithdrawal(withdrawal.id, 'admin-1', 'race A'),
-      withdrawalService.rejectWithdrawal(withdrawal.id, 'admin-1', 'race B'),
+      withdrawalService.rejectWithdrawal(withdrawal.id, adminId, 'race A'),
+      withdrawalService.rejectWithdrawal(withdrawal.id, adminId, 'race B'),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -55,6 +70,7 @@ describe('withdrawalService — atomic approve/reject (TASK-002)', () => {
 
   it('never lets process and reject both succeed on the same withdrawal', async () => {
     const { userId } = await setupFundedBetter(10000);
+    const adminId = await setupAdmin();
     const withdrawal = await withdrawalService.requestWithdrawal(userId, 5000, {
       bankName: 'Test Bank',
       accountNumber: '0123456789',
@@ -62,8 +78,8 @@ describe('withdrawalService — atomic approve/reject (TASK-002)', () => {
     });
 
     const results = await Promise.allSettled([
-      withdrawalService.processWithdrawal(withdrawal.id, 'admin-1'),
-      withdrawalService.rejectWithdrawal(withdrawal.id, 'admin-1', 'race'),
+      withdrawalService.processWithdrawal(withdrawal.id, adminId),
+      withdrawalService.rejectWithdrawal(withdrawal.id, adminId, 'race'),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');

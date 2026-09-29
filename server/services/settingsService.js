@@ -1,6 +1,7 @@
 const prisma = require('../config/db');
 const env = require('../config/env');
 const { SETTING_KEYS } = require('../config/constants');
+const { recordAuditLog } = require('../middleware/auditLog');
 
 const DEFAULTS = {
   [SETTING_KEYS.BOARDMAN_COMMISSION_RATE]: env.defaults.boardmanCommissionRate,
@@ -21,13 +22,25 @@ async function getAllSettings() {
   return Object.fromEntries(keys.map((key, i) => [key, values[i]]));
 }
 
+// Every commission-rate or confirmation-window change is audited (TASK-012)
+// — this is money-affecting configuration, not cosmetic settings.
 async function updateSetting(key, value, adminUserId) {
   if (!(key in DEFAULTS)) throw new Error(`Unknown setting key: ${key}`);
-  return prisma.systemSetting.upsert({
+  const before = await getSetting(key);
+  const updated = await prisma.systemSetting.upsert({
     where: { key },
     update: { value: String(value), updatedByAdminId: adminUserId },
     create: { key, value: String(value), updatedByAdminId: adminUserId },
   });
+  await recordAuditLog({
+    actorUserId: adminUserId,
+    action: 'SETTING_UPDATED',
+    entityType: 'SystemSetting',
+    entityId: key,
+    beforeState: { value: before },
+    afterState: { value: Number(value) },
+  });
+  return updated;
 }
 
 module.exports = { getSetting, getAllSettings, updateSetting };

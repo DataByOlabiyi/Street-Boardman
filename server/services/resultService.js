@@ -3,6 +3,7 @@ const AppError = require('../utils/appError');
 const settingsService = require('./settingsService');
 const payoutService = require('./payoutService');
 const { SETTING_KEYS } = require('../config/constants');
+const { recordAuditLog } = require('../middleware/auditLog');
 
 async function submitResult(boardmanProfile, competitionId, { winningOptionId, finalScore, evidenceUrls, notes }) {
   const competition = await prisma.competition.findUnique({
@@ -95,6 +96,17 @@ async function resolveDispute(adminUserId, disputeId, { action, winningOptionId 
         where: { competitionId: dispute.competitionId },
         data: { status: 'CANCELLED' },
       });
+      await recordAuditLog(
+        {
+          actorUserId: adminUserId,
+          action: 'DISPUTE_RESOLVED_CANCELLED',
+          entityType: 'Dispute',
+          entityId: disputeId,
+          beforeState: { status: dispute.status },
+          afterState: { status: 'RESOLVED_CANCELLED' },
+        },
+        tx
+      );
     });
     return payoutService.cancelAndRefundCompetition(dispute.competitionId);
   }
@@ -116,6 +128,17 @@ async function resolveDispute(adminUserId, disputeId, { action, winningOptionId 
         where: { id: disputeId },
         data: { status: 'RESOLVED_CONFIRMED', resolvedByAdminId: adminUserId, resolvedAt: new Date() },
       });
+      await recordAuditLog(
+        {
+          actorUserId: adminUserId,
+          action: 'DISPUTE_RESOLVED_CONFIRMED',
+          entityType: 'Dispute',
+          entityId: disputeId,
+          beforeState: { status: dispute.status, winningOptionId: result.winningOptionId },
+          afterState: { status: 'RESOLVED_CONFIRMED', winningOptionId: winningOptionId || result.winningOptionId },
+        },
+        tx
+      );
     });
     return payoutService.processPayoutsForCompetition(dispute.competitionId);
   }

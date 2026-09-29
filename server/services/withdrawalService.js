@@ -2,6 +2,7 @@ const prisma = require('../config/db');
 const AppError = require('../utils/appError');
 const walletService = require('./walletService');
 const { toDecimal, round2 } = require('../utils/money');
+const { recordAuditLog } = require('../middleware/auditLog');
 
 // Withdrawals are two-step: requesting one immediately debits the wallet
 // (so the user can't spend the same money twice while it's "pending"), and
@@ -39,16 +40,29 @@ async function listWithdrawalsForUser(userId) {
 // race finds updateMany matched 0 rows and gets a clean error instead of
 // double-processing it (TASK-002).
 async function processWithdrawal(withdrawalId, adminUserId) {
-  const claim = await prisma.withdrawal.updateMany({
-    where: { id: withdrawalId, status: 'PENDING' },
-    data: { status: 'PROCESSED', processedAt: new Date() },
+  return prisma.$transaction(async (tx) => {
+    const claim = await tx.withdrawal.updateMany({
+      where: { id: withdrawalId, status: 'PENDING' },
+      data: { status: 'PROCESSED', processedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      const existing = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+      if (!existing) throw new AppError('Withdrawal not found', 404);
+      throw new AppError('Withdrawal already handled', 400);
+    }
+    await recordAuditLog(
+      {
+        actorUserId: adminUserId,
+        action: 'WITHDRAWAL_PROCESSED',
+        entityType: 'Withdrawal',
+        entityId: withdrawalId,
+        beforeState: { status: 'PENDING' },
+        afterState: { status: 'PROCESSED' },
+      },
+      tx
+    );
+    return tx.withdrawal.findUnique({ where: { id: withdrawalId } });
   });
-  if (claim.count === 0) {
-    const existing = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
-    if (!existing) throw new AppError('Withdrawal not found', 404);
-    throw new AppError('Withdrawal already handled', 400);
-  }
-  return prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
 }
 
 // Rejecting a withdrawal returns the held funds to the user's wallet as an
@@ -78,6 +92,17 @@ async function rejectWithdrawal(withdrawalId, adminUserId, reasonNote) {
       referenceId: withdrawal.id,
       note: reasonNote || 'Withdrawal rejected — funds returned',
     });
+    await recordAuditLog(
+      {
+        actorUserId: adminUserId,
+        action: 'WITHDRAWAL_REJECTED',
+        entityType: 'Withdrawal',
+        entityId: withdrawalId,
+        beforeState: { status: 'PENDING' },
+        afterState: { status: 'REJECTED', reason: reasonNote || null },
+      },
+      tx
+    );
     return withdrawal;
   });
 }
