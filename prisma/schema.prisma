@@ -193,6 +193,13 @@ model Competition {
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
+  // Retry bookkeeping for the payout sweep (TASK-005). A competition stuck
+  // in RESULT_CONFIRMED or PAYOUT_PROCESSING gets retried a bounded number
+  // of times before the sweep gives up and logs loudly instead of retrying
+  // forever in silence.
+  payoutAttemptCount Int      @default(0)
+  lastPayoutError    String?
+
   participants CompetitionParticipant[]
   betOptions   BetOption[]
   result       Result?
