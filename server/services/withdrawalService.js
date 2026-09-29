@@ -3,6 +3,22 @@ const AppError = require('../utils/appError');
 const walletService = require('./walletService');
 const { toDecimal, round2 } = require('../utils/money');
 const { recordAuditLog } = require('../middleware/auditLog');
+const env = require('../config/env');
+
+// Stands in for a real bank transfer via a payment provider's Transfers
+// API, which belongs here once EPIC-003/FEAT-011 wires one up. Deliberately
+// throws in PRODUCTION rather than silently doing nothing, so "processed"
+// can never again be a status with no real money movement behind it
+// (TASK-003). DEMO mode has no real transfer to make, so it no-ops.
+async function transferFunds(withdrawal) {
+  if (env.appMode === 'PRODUCTION') {
+    throw new AppError(
+      'Real bank transfers are not yet implemented (see FEAT-011) — cannot process this withdrawal',
+      501
+    );
+  }
+  return { success: true, reference: `demo-transfer:${withdrawal.id}` };
+}
 
 // Withdrawals are two-step: requesting one immediately debits the wallet
 // (so the user can't spend the same money twice while it's "pending"), and
@@ -40,6 +56,17 @@ async function listWithdrawalsForUser(userId) {
 // race finds updateMany matched 0 rows and gets a clean error instead of
 // double-processing it (TASK-002).
 async function processWithdrawal(withdrawalId, adminUserId) {
+  const existing = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
+  if (!existing) throw new AppError('Withdrawal not found', 404);
+  if (existing.status !== 'PENDING') throw new AppError('Withdrawal already handled', 400);
+
+  // Real money has to actually move before we're allowed to call this
+  // done — see transferFunds above. The atomic claim below is still what
+  // guards against a concurrent double-process (TASK-002); this is just
+  // an early, read-only check to avoid attempting a transfer on a
+  // withdrawal that's obviously already settled.
+  await transferFunds(existing);
+
   return prisma.$transaction(async (tx) => {
     const claim = await tx.withdrawal.updateMany({
       where: { id: withdrawalId, status: 'PENDING' },
