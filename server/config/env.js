@@ -41,6 +41,15 @@ module.exports = {
   appMode: process.env.APP_MODE || 'DEMO', // 'DEMO' | 'PRODUCTION'
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
 
+  // Number of reverse-proxy hops (load balancer, CDN, etc.) Express should
+  // trust the X-Forwarded-For chain through when determining req.ip. This
+  // MUST match the real deployment topology: 0 (the default) is correct
+  // for no proxy in front — but wrong, and a rate-limiting bug (every user
+  // appears to share one IP), the moment a proxy IS introduced without
+  // updating this (TASK-010). Whoever stands up the production
+  // load balancer/proxy (see infra work) sets this to the exact hop count.
+  trustProxyHops: process.env.TRUST_PROXY_HOPS !== undefined ? Number(process.env.TRUST_PROXY_HOPS) : 0,
+
   jwt: {
     accessSecret: requiredJwtSecret('JWT_ACCESS_SECRET', DEV_DEFAULT_ACCESS_SECRET),
     refreshSecret: requiredJwtSecret('JWT_REFRESH_SECRET', DEV_DEFAULT_REFRESH_SECRET),

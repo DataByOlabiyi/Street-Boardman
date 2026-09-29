@@ -11,6 +11,11 @@ const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 const app = express();
 
+// Must be set before any middleware that reads req.ip (rate limiters
+// especially) — see env.trustProxyHops for why this can't just default to
+// trusting everything (TASK-010).
+app.set('trust proxy', env.trustProxyHops);
+
 app.use(helmet());
 app.use(cors({ origin: env.clientOrigin, credentials: true }));
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
