@@ -9,7 +9,13 @@ const { toDecimal, round2 } = require('../utils/money');
 // DEMO MODE: instantly credits the wallet with fake money. No real payment
 // provider involved. This is the only deposit path available until
 // APP_MODE is switched to PRODUCTION and Paystack keys are configured.
+//
+// Blocked outright in PRODUCTION: without this guard, anyone could mint
+// fake balance via this endpoint and withdraw it as real money (TASK-001).
 async function createDemoDeposit(userId, amount) {
+  if (env.appMode !== 'DEMO') {
+    throw new AppError('Demo deposits are disabled — this app is running in PRODUCTION mode', 403);
+  }
   const amountDecimal = round2(toDecimal(amount));
   if (amountDecimal.lte(0)) throw new AppError('Deposit amount must be positive', 422);
 
