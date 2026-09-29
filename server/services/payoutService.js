@@ -147,18 +147,35 @@ async function processPayoutsForCompetition(competitionId) {
   const allBets = competition.betOptions.flatMap((o) => o.bets);
   const totalStakePool = allBets.reduce((sum, b) => sum.plus(toDecimal(b.stake)), toDecimal(0));
 
-  const commission = commissionService.calculateCommission(
-    totalStakePool,
-    competition.boardmanCommissionRate,
-    competition.platformCommissionRate
-  );
-
   const winningOption = competition.betOptions.find((o) => o.id === result.winningOptionId);
   // Not filtered by status: on a resumed run some of these may already be
   // WON from a prior partial attempt. payOneBet is idempotent, so including
   // them again is harmless, and the payout math (proportional to stake)
   // doesn't change based on status either way.
   const winningBets = winningOption.bets;
+  const otherBets = allBets.filter((b) => b.betOptionId !== winningOption.id);
+
+  // Two no-contest cases (TASK-007), both handled the same way — full
+  // refund of every stake, no commission taken:
+  //  1. Nobody bet on the winning option at all: there's no one to pay,
+  //     and taking commission while every other bettor's stake simply
+  //     vanishes would be indefensible.
+  //  2. Everybody who bet, bet on the winning option (no opposing stakes):
+  //     there was never any real risk for commission to have been earned
+  //     against, and a pari-mutuel split would pay winners LESS than they
+  //     staked purely because commission was deducted from their own money.
+  const noWinningBets = winningBets.length === 0;
+  const oneSidedPool = !noWinningBets && otherBets.length === 0;
+  if (noWinningBets || oneSidedPool) {
+    return cancelAndRefundCompetition(competitionId);
+  }
+
+  const commission = commissionService.calculateCommission(
+    totalStakePool,
+    competition.boardmanCommissionRate,
+    competition.platformCommissionRate
+  );
+
   const payouts = commissionService.calculateWinnerPayouts(
     winningBets,
     winningOption.totalStaked,
@@ -170,11 +187,17 @@ async function processPayoutsForCompetition(competitionId) {
     await payOneBet(bet, amount, competition.title);
   }
 
-  const losingBetIds = allBets
-    .filter((b) => b.status === 'OPEN' && b.betOptionId !== winningOption.id)
-    .map((b) => b.id);
+  // Rounding each winner's share independently can leave a few kobo
+  // unallocated (or, in principle, over-allocated by a kobo) versus the
+  // distributable pool. Whatever's left is folded into the platform's
+  // commission rather than silently dropped (TASK-007).
+  const paidTotal = payouts.reduce((sum, p) => sum.plus(p.amount), toDecimal(0));
+  const remainder = commission.distributablePool.minus(paidTotal);
+  const adjustedCommission = { ...commission, platformAmount: commission.platformAmount.plus(remainder) };
 
-  const finalized = await finalizePayout(competitionId, competition, commission, losingBetIds);
+  const losingBetIds = otherBets.filter((b) => b.status === 'OPEN').map((b) => b.id);
+
+  const finalized = await finalizePayout(competitionId, competition, adjustedCommission, losingBetIds);
   return { skipped: false, payoutsCount: payouts.length, commission: finalized.commission };
 }
 

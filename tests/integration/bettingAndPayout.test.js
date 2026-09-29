@@ -122,9 +122,15 @@ describe('Full betting -> result -> payout flow', () => {
     });
     const competition = createRes.body.competition;
     const optionA = competition.betOptions.find((o) => o.label === 'A wins');
+    const optionB = competition.betOptions.find((o) => o.label === 'B wins');
 
     const { agent } = await setupFundedBetter(10000);
     await agent.post('/api/bets').send({ betOptionId: optionA.id, stake: 10000 });
+    // A losing-side bet too, so this is a genuine two-sided pool (TASK-007
+    // refunds a one-sided pool instead of paying out, which would make
+    // this idempotency test moot).
+    const { agent: loser } = await setupFundedBetter(5000);
+    await loser.post('/api/bets').send({ betOptionId: optionB.id, stake: 5000 });
 
     await boardmanAgent.patch(`/api/competitions/${competition.id}/close-betting`);
     await boardmanAgent.post(`/api/competitions/${competition.id}/result`).send({ winningOptionId: optionA.id });

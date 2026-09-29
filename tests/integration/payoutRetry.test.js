@@ -35,6 +35,7 @@ async function setupFundedBetter(amount = 20000) {
 async function createConfirmedCompetition(boardmanPhone) {
   const { boardmanAgent } = await setupApprovedBoardman(boardmanPhone);
   const { agent: better } = await setupFundedBetter(20000);
+  const { agent: loser } = await setupFundedBetter(10000);
 
   const deadline = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   const createRes = await boardmanAgent.post('/api/competitions').send({
@@ -45,8 +46,13 @@ async function createConfirmedCompetition(boardmanPhone) {
   });
   const competitionId = createRes.body.competition.id;
   const homeOption = createRes.body.competition.betOptions.find((o) => o.label === 'Home');
+  const awayOption = createRes.body.competition.betOptions.find((o) => o.label === 'Away');
 
   await better.post('/api/bets').send({ betOptionId: homeOption.id, stake: 5000 });
+  // A losing-side bet, so this is a genuine two-sided pool (TASK-007
+  // refunds a one-sided pool with no commission, which would bypass the
+  // finalize-step failure this test relies on to exercise retries).
+  await loser.post('/api/bets').send({ betOptionId: awayOption.id, stake: 2000 });
   await boardmanAgent.patch(`/api/competitions/${competitionId}/close-betting`);
   await boardmanAgent.post(`/api/competitions/${competitionId}/result`).send({ winningOptionId: homeOption.id });
   await prisma.result.update({ where: { competitionId }, data: { status: 'CONFIRMED', confirmedAt: new Date() } });

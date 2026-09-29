@@ -45,6 +45,7 @@ describe('payoutService — resumable chunked payout (TASK-006)', () => {
     const { boardmanAgent } = await setupApprovedBoardman();
     const { agent: better1, userId: better1Id } = await setupFundedBetter(20000);
     const { agent: better2, userId: better2Id } = await setupFundedBetter(20000);
+    const { agent: loser } = await setupFundedBetter(10000);
 
     const deadline = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const createRes = await boardmanAgent.post('/api/competitions').send({
@@ -59,6 +60,10 @@ describe('payoutService — resumable chunked payout (TASK-006)', () => {
 
     const bet1Res = await better1.post('/api/bets').send({ betOptionId: homeOption.id, stake: 5000 });
     const bet2Res = await better2.post('/api/bets').send({ betOptionId: homeOption.id, stake: 3000 });
+    // A losing-side bet, so this is a genuine two-sided pool (TASK-007
+    // refunds a one-sided pool instead of running the payout/resume path
+    // this test is actually exercising).
+    await loser.post('/api/bets').send({ betOptionId: awayOption.id, stake: 2000 });
     const bet1Id = bet1Res.body.bet.id;
     const bet2Id = bet2Res.body.bet.id;
 

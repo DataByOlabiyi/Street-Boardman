@@ -18,6 +18,13 @@ async function createCompetition(boardmanProfile, { title, description, category
     ?? (await settingsService.getSetting(SETTING_KEYS.BOARDMAN_COMMISSION_RATE));
   const platformRate = await settingsService.getSetting(SETTING_KEYS.PLATFORM_COMMISSION_RATE);
 
+  // Combined commission can never reach or exceed the whole pool — winners
+  // would be paid less than they staked even when a genuine winning side
+  // exists (TASK-007).
+  if (boardmanRate + platformRate >= 1) {
+    throw new AppError('Combined Boardman and platform commission rates must be below 100%', 422);
+  }
+
   return prisma.competition.create({
     data: {
       boardmanProfileId: boardmanProfile.id,
