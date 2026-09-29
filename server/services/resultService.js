@@ -44,11 +44,25 @@ async function submitResult(boardmanProfile, competitionId, { winningOptionId, f
 async function raiseDispute(userId, competitionId, reason) {
   const competition = await prisma.competition.findUnique({
     where: { id: competitionId },
-    include: { result: true },
+    include: { result: true, boardmanProfile: true },
   });
   if (!competition || !competition.result) throw new AppError('No result to dispute yet', 404);
   if (competition.result.status !== 'PENDING_CONFIRMATION') {
     throw new AppError('This result can no longer be disputed', 400);
+  }
+
+  // Only someone with money on the outcome, or the Boardman who ran it, can
+  // freeze payouts by disputing — otherwise any logged-in account could
+  // grief an unrelated competition (TASK-011).
+  const isBoardman = competition.boardmanProfile.userId === userId;
+  if (!isBoardman) {
+    const hasBet = await prisma.bet.findFirst({
+      where: { competitionId, betterId: userId },
+      select: { id: true },
+    });
+    if (!hasBet) {
+      throw new AppError('Only a bettor on this competition or its Boardman can raise a dispute', 403);
+    }
   }
 
   return prisma.$transaction(async (tx) => {
