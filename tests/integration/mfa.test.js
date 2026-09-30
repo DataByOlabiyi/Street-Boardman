@@ -102,20 +102,21 @@ describe('MFA enrollment (TASK-031)', () => {
   });
 
   it('/users/me reports MFA status without ever exposing the secret', async () => {
-    const { user, phone } = await createAdmin();
+    const { phone } = await createAdmin();
     const agent = request.agent(app);
     await agent.post('/api/auth/login').send({ phone, pin: '1234' });
 
     const before = await agent.get('/api/users/me');
     expect(before.body.user.mfaEnabled).toBe(false);
 
-    const { secret } = await mfaService.startSetup(user.id);
-    await mfaService.confirmSetup(user.id, await generate({ secret }));
+    const { body: setup } = await agent.post('/api/auth/mfa/setup');
+    await agent.post('/api/auth/mfa/setup/confirm').send({ code: await generate({ secret: setup.secret }) });
 
     const after = await agent.get('/api/users/me');
     expect(after.body.user.mfaEnabled).toBe(true);
-    expect(JSON.stringify(after.body)).not.toContain(secret);
+    expect(JSON.stringify(after.body)).not.toContain(setup.secret);
   });
+
 
   it('enrollment endpoints are only reachable by an authenticated ADMIN', async () => {
     const res = await request(app).post('/api/auth/mfa/setup');

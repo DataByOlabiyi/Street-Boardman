@@ -77,6 +77,9 @@ async function initializePaystackDeposit(user, amount) {
 // (TASK-004) so a timing side-channel can't help an attacker guess their
 // way to a valid signature byte by byte.
 function verifyPaystackSignature(rawBody, signatureHeader) {
+  // Fail closed: with no secret configured, the HMAC key is an empty
+  // string that anyone can compute with — every forged event would verify.
+  if (!env.paystack.webhookSecret) return false;
   const hash = crypto
     .createHmac('sha512', env.paystack.webhookSecret)
     .update(rawBody)

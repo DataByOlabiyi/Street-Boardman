@@ -8,6 +8,7 @@ const routes = require('./routes');
 const depositController = require('./controllers/depositController');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { requestId, httpLogger } = require('./middleware/requestLogger');
+const requireSameOrigin = require('./middleware/sameOrigin');
 
 const app = express();
 
@@ -61,7 +62,13 @@ app.use(express.json());
 
 app.get('/health', (req, res) => res.json({ ok: true, mode: env.appMode }));
 
-app.use('/api', routes);
+// API responses carry balances, bet slips and KYC status — never let a
+// browser or shared proxy cache them (ASVS 8.2.1).
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+app.use('/api', requireSameOrigin, routes);
 
 app.use(notFound);
 app.use(errorHandler);

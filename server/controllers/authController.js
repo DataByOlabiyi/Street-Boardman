@@ -5,9 +5,12 @@ const mfaService = require('../services/mfaService');
 const {
   signAccessToken,
   signRefreshToken,
+  verifyAccessToken,
   verifyRefreshToken,
   signMfaChallengeToken,
   verifyMfaChallengeToken,
+  isCurrentTokenVersion,
+  isWithinMaxSessionAge,
 } = require('../utils/jwt');
 const { COOKIE_NAMES } = require('../config/constants');
 const env = require('../config/env');
@@ -23,12 +26,13 @@ const cookieOptions = {
   sameSite: env.cookies.sameSite,
 };
 
-function issueSession(res, user) {
+// authTime defaults to now (a fresh login); /refresh passes the original.
+function issueSession(res, user, authTime) {
   res.cookie(COOKIE_NAMES.ACCESS, signAccessToken(user), {
     ...cookieOptions,
     maxAge: 15 * 60 * 1000,
   });
-  res.cookie(COOKIE_NAMES.REFRESH, signRefreshToken(user), {
+  res.cookie(COOKIE_NAMES.REFRESH, signRefreshToken(user, authTime), {
     ...cookieOptions,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
@@ -96,13 +100,29 @@ const mfaVerify = asyncHandler(async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
   if (!user || !user.mfaEnabledAt) throw new AppError('MFA challenge expired, please log in again', 401);
   if (user.status === 'SUSPENDED') throw new AppError('Account suspended, contact support', 403);
+  // Wrong codes share the PIN's lockout budget — the PIN step already
+  // passed, so guessing codes is what an attacker holding a stolen PIN
+  // would be doing.
+  authService.assertNotLocked(user);
 
   const isValid = await mfaService.verifyToken(user.id, code);
-  if (!isValid) throw new AppError('Incorrect code', 400);
+  if (!isValid) {
+    await authService.recordFailedAttempt(user.id);
+    throw new AppError('Incorrect code', 400);
+  }
+  await authService.clearFailedAttempts(user);
 
   issueSession(res, user);
   res.json({ user: toPublicUser(user) });
 });
+
+// Turning MFA on or off bumps tokenVersion, which logs out every other
+// device (a stolen session shouldn't survive the owner securing their
+// account). The device making the change gets fresh cookies so it stays in.
+async function reissueForCurrentDevice(res, userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  issueSession(res, user);
+}
 
 const mfaSetupStart = asyncHandler(async (req, res) => {
   const { secret, otpauthUrl } = await mfaService.startSetup(req.user.id);
@@ -113,6 +133,7 @@ const mfaSetupConfirm = asyncHandler(async (req, res) => {
   const { code } = req.body;
   if (!code) throw new AppError('code is required', 400);
   const result = await mfaService.confirmSetup(req.user.id, code);
+  await reissueForCurrentDevice(res, req.user.id);
   res.json(result);
 });
 
@@ -120,10 +141,36 @@ const mfaDisable = asyncHandler(async (req, res) => {
   const { code } = req.body;
   if (!code) throw new AppError('code is required', 400);
   const result = await mfaService.disableMfa(req.user.id, code);
+  await reissueForCurrentDevice(res, req.user.id);
   res.json(result);
 });
 
+function userIdFromSessionCookies(req) {
+  const attempts = [
+    [req.cookies?.[COOKIE_NAMES.REFRESH], verifyRefreshToken],
+    [req.cookies?.[COOKIE_NAMES.ACCESS], verifyAccessToken],
+  ];
+  for (const [token, verify] of attempts) {
+    if (!token) continue;
+    try {
+      return verify(token).sub;
+    } catch {
+      // expired or tampered — try the other cookie
+    }
+  }
+  return null;
+}
+
+// Clearing cookies alone left the refresh token valid for up to 7 days —
+// anyone who had copied it could keep using the account after the owner
+// logged out (ASVS 3.3.1). Bumping tokenVersion revokes it server-side.
+// This signs out every device for the account, which for a money app is
+// the safer default.
 const logout = asyncHandler(async (req, res) => {
+  const userId = userIdFromSessionCookies(req);
+  if (userId) {
+    await prisma.user.updateMany({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+  }
   res.clearCookie(COOKIE_NAMES.ACCESS, cookieOptions);
   res.clearCookie(COOKIE_NAMES.REFRESH, cookieOptions);
   res.json({ ok: true });
@@ -132,12 +179,8 @@ const logout = asyncHandler(async (req, res) => {
 // Lets a session outlive the 15-minute access token without asking the
 // user to log in again. Re-checks the user's current role/status (not just
 // what was true when the refresh token was issued) and rotates both
-// cookies (TASK-009).
-//
-// This is stateless JWT rotation, not revocable server-side — there's no
-// refresh-token table yet, so "log out everywhere" isn't possible. That's
-// a deliberate Phase 1 addition (ties into the staff session work in
-// EPIC-004), not an oversight here.
+// cookies (TASK-009). Tokens issued before the account's last logout or
+// MFA change are rejected via tokenVersion.
 const refresh = asyncHandler(async (req, res) => {
   const token = req.cookies?.[COOKIE_NAMES.REFRESH];
   if (!token) throw new AppError('Not authenticated', 401);
@@ -152,13 +195,18 @@ const refresh = asyncHandler(async (req, res) => {
   }
 
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-  if (!user || user.status === 'SUSPENDED') {
+  if (!user || user.status === 'SUSPENDED' || !isCurrentTokenVersion(payload, user)) {
     res.clearCookie(COOKIE_NAMES.ACCESS, cookieOptions);
     res.clearCookie(COOKIE_NAMES.REFRESH, cookieOptions);
     throw new AppError('Not authenticated', 401);
   }
+  if (!isWithinMaxSessionAge(payload, user)) {
+    res.clearCookie(COOKIE_NAMES.ACCESS, cookieOptions);
+    res.clearCookie(COOKIE_NAMES.REFRESH, cookieOptions);
+    throw new AppError('Session expired, please log in again', 401);
+  }
 
-  issueSession(res, user);
+  issueSession(res, user, payload.at);
   res.json({ user: toPublicUser(user) });
 });
 

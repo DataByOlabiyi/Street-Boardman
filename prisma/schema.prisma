@@ -143,6 +143,16 @@ model User {
   // a phished or shoulder-surfed code can't be replayed inside its 30s
   // window (ASVS 2.8.4).
   mfaLastTimeStep Int?
+  // Per-account brute-force protection (ASVS 2.2.1). The per-IP rate limit
+  // alone can't stop an attacker rotating IPs against one account, and a
+  // 4-digit PIN is only 10,000 guesses. Wrong PIN or MFA code increments
+  // the count; reaching the limit locks the account for a while.
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  // Stamped into every access/refresh token. Bumping it (logout, MFA
+  // change) invalidates every token already issued for this account —
+  // stateless JWTs otherwise stay valid until they expire (ASVS 3.3.1).
+  tokenVersion     Int       @default(0)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 

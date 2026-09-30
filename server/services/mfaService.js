@@ -71,7 +71,8 @@ async function confirmSetup(userId, token) {
     throw new AppError('No MFA enrollment in progress — call the setup endpoint first', 400);
   }
   // Consumes the setup code too, so it can't be reused to log in.
-  const isValid = await consumeToken(user, token, { mfaEnabledAt: new Date() });
+  // tokenVersion bump logs out every other session (see authController).
+  const isValid = await consumeToken(user, token, { mfaEnabledAt: new Date(), tokenVersion: { increment: 1 } });
   if (!isValid) throw new AppError('Incorrect code', 400);
   return { enabled: true };
 }
@@ -93,7 +94,7 @@ async function disableMfa(userId, token) {
   if (!isValid) throw new AppError('Incorrect code', 400);
   await prisma.user.update({
     where: { id: userId },
-    data: { mfaSecret: null, mfaEnabledAt: null, mfaLastTimeStep: null },
+    data: { mfaSecret: null, mfaEnabledAt: null, mfaLastTimeStep: null, tokenVersion: { increment: 1 } },
   });
   return { enabled: false };
 }
