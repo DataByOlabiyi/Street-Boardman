@@ -138,6 +138,11 @@ model User {
   // no bypass path exists.
   mfaSecret      String?
   mfaEnabledAt   DateTime?
+  // Highest TOTP time step ever accepted for this account. A code is only
+  // accepted if its step is strictly greater, so each code works once —
+  // a phished or shoulder-surfed code can't be replayed inside its 30s
+  // window (ASVS 2.8.4).
+  mfaLastTimeStep Int?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 

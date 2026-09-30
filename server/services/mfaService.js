@@ -14,9 +14,35 @@ const AppError = require('../utils/appError');
 const ISSUER = 'StreetBoardman';
 const plugins = { crypto: cryptoPlugin, base32: base32Plugin };
 
-async function checkToken(secret, token) {
-  const result = await verify({ secret, token, ...plugins });
-  return result.valid;
+// One step (30s) of tolerance either side absorbs phone clock drift,
+// which is common on budget Android handsets. Safe only because of the
+// single-use rule below — without it, tolerance would widen the replay
+// window instead.
+const EPOCH_TOLERANCE_SECONDS = 30;
+
+// A correct code that was already used gets its own message: "Incorrect
+// code" would send someone who just typed the right digits hunting for a
+// typo, when the fix is to wait for their app to show the next code.
+const CODE_ALREADY_USED = 'This code has already been used. Wait for the next one in your authenticator app.';
+
+// Verifies a code and, if valid, atomically marks its time step as used.
+// The conditional update is what makes each code single-use: a replay of
+// the same code (or two concurrent logins racing with it) finds the step
+// already consumed and matches zero rows. Returns false for a wrong code;
+// throws for a right-but-used one.
+async function consumeToken(user, token, extraData = {}) {
+  const result = await verify({ secret: user.mfaSecret, token, epochTolerance: EPOCH_TOLERANCE_SECONDS, ...plugins });
+  if (!result.valid) return false;
+  const { count } = await prisma.user.updateMany({
+    where: {
+      id: user.id,
+      mfaSecret: user.mfaSecret,
+      OR: [{ mfaLastTimeStep: null }, { mfaLastTimeStep: { lt: result.timeStep } }],
+    },
+    data: { mfaLastTimeStep: result.timeStep, ...extraData },
+  });
+  if (count !== 1) throw new AppError(CODE_ALREADY_USED, 400);
+  return true;
 }
 
 // Starts enrollment: generates a new TOTP secret and stores it, but does
@@ -28,7 +54,7 @@ async function startSetup(userId) {
   const secret = generateSecret({ length: 20, ...plugins });
   const user = await prisma.user.update({
     where: { id: userId },
-    data: { mfaSecret: secret },
+    data: { mfaSecret: secret, mfaLastTimeStep: null },
   });
   const otpauthUrl = generateTOTP({ issuer: ISSUER, label: user.phone, secret });
   return { secret, otpauthUrl };
@@ -44,10 +70,9 @@ async function confirmSetup(userId, token) {
   if (!user || !user.mfaSecret) {
     throw new AppError('No MFA enrollment in progress — call the setup endpoint first', 400);
   }
-  const isValid = await checkToken(user.mfaSecret, token);
+  // Consumes the setup code too, so it can't be reused to log in.
+  const isValid = await consumeToken(user, token, { mfaEnabledAt: new Date() });
   if (!isValid) throw new AppError('Incorrect code', 400);
-
-  await prisma.user.update({ where: { id: userId }, data: { mfaEnabledAt: new Date() } });
   return { enabled: true };
 }
 
@@ -58,7 +83,7 @@ async function verifyToken(userId, token) {
   if (!user || !user.mfaEnabledAt || !user.mfaSecret) {
     throw new AppError('MFA is not enabled for this account', 400);
   }
-  return checkToken(user.mfaSecret, token);
+  return consumeToken(user, token);
 }
 
 // Requires a valid current code to turn MFA back off — never a bare
@@ -66,7 +91,10 @@ async function verifyToken(userId, token) {
 async function disableMfa(userId, token) {
   const isValid = await verifyToken(userId, token);
   if (!isValid) throw new AppError('Incorrect code', 400);
-  await prisma.user.update({ where: { id: userId }, data: { mfaSecret: null, mfaEnabledAt: null } });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { mfaSecret: null, mfaEnabledAt: null, mfaLastTimeStep: null },
+  });
   return { enabled: false };
 }
 

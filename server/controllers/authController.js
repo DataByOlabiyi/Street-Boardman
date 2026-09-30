@@ -43,6 +43,8 @@ function toPublicUser(user) {
     status: user.status,
     phoneVerifiedAt: user.phoneVerifiedAt,
     kycTier: user.kycTier,
+    // Status only — the TOTP secret itself never leaves the server.
+    mfaEnabled: Boolean(user.mfaEnabledAt),
   };
 }
 
