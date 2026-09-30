@@ -31,6 +31,7 @@ async function createDemoDeposit(userId, amount) {
       referenceType: 'Deposit',
       referenceId: deposit.id,
       note: 'Demo wallet top-up',
+      counterparty: { type: 'EXTERNAL' },
     });
     return deposit;
   });
@@ -124,6 +125,7 @@ async function handlePaystackChargeSuccess(reference, eventData = {}) {
       referenceType: 'Deposit',
       referenceId: deposit.id,
       note: 'Paystack deposit',
+      counterparty: { type: 'EXTERNAL' },
     });
     return updated;
   });

@@ -40,6 +40,7 @@ async function requestWithdrawal(userId, amount, destination) {
       referenceType: 'Withdrawal',
       referenceId: withdrawal.id,
       note: 'Withdrawal request',
+      counterparty: { type: 'EXTERNAL' },
     });
     return withdrawal;
   });
@@ -118,6 +119,11 @@ async function rejectWithdrawal(withdrawalId, adminUserId, reasonNote) {
       referenceType: 'Withdrawal',
       referenceId: withdrawal.id,
       note: reasonNote || 'Withdrawal rejected — funds returned',
+      // Reverses the WITHDRAWAL leg above, which also went to EXTERNAL —
+      // the money never actually left (TASK-003's stub refuses to run a
+      // real transfer), so crediting it back from the same counterparty
+      // keeps the ledger consistent with what actually happened.
+      counterparty: { type: 'EXTERNAL' },
     });
     await recordAuditLog(
       {

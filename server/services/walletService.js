@@ -1,5 +1,6 @@
 const AppError = require('../utils/appError');
 const { toDecimal, round2 } = require('../utils/money');
+const ledgerService = require('./ledgerService');
 
 // Creates a wallet for a freshly registered user. Every user gets exactly
 // one wallet matching their role (Admins don't get a personal wallet here —
@@ -22,6 +23,26 @@ async function getPlatformWallet(prismaClient) {
   return wallet;
 }
 
+// Resolves a `counterparty` descriptor (see applyWalletTransaction below)
+// to the LedgerAccount on the other side of the double entry.
+async function resolveCounterpartyAccount(tx, counterparty) {
+  if (!counterparty) {
+    throw new AppError('applyWalletTransaction requires a counterparty for the ledger entry', 500);
+  }
+  if (counterparty.type === 'ESCROW') {
+    return ledgerService.getOrCreateEscrowAccountForCompetition(tx, counterparty.competitionId);
+  }
+  if (counterparty.type === 'EXTERNAL') {
+    return ledgerService.getExternalAccount(tx);
+  }
+  if (counterparty.type === 'WALLET') {
+    const wallet = await tx.wallet.findUnique({ where: { id: counterparty.walletId } });
+    if (!wallet) throw new AppError('Counterparty wallet not found', 404);
+    return ledgerService.getOrCreateAccountForWallet(tx, wallet);
+  }
+  throw new AppError(`Unknown ledger counterparty type: ${counterparty.type}`, 500);
+}
+
 // The ONLY place a wallet balance is ever changed. `delta` is signed:
 // positive credits the wallet (deposit, win, commission, refund), negative
 // debits it (stake, withdrawal). The raw SQL update is conditional on the
@@ -32,7 +53,17 @@ async function getPlatformWallet(prismaClient) {
 // `tx` must be an active Prisma interactive-transaction client, so this
 // call is always part of a larger atomic operation (e.g. "deduct stake AND
 // create the bet" happen together or not at all).
-async function applyWalletTransaction(tx, { walletId, type, delta, referenceType, referenceId, note }) {
+//
+// `counterparty` (TASK-017) says where the OTHER side of this movement
+// goes in the double-entry ledger — every call site has to state it
+// explicitly rather than the ledger trying to infer it from `type`, since
+// e.g. an ADJUSTMENT can mean different things depending on context.
+// Shapes: { type: 'ESCROW', competitionId } | { type: 'EXTERNAL' } |
+// { type: 'WALLET', walletId }. WalletTransaction (below) keeps being
+// written unchanged alongside the ledger — nothing reads from the ledger
+// yet (TASK-018 is that migration), this just makes sure it's already
+// correct and populated by the time something does.
+async function applyWalletTransaction(tx, { walletId, type, delta, referenceType, referenceId, note, counterparty }) {
   const deltaDecimal = round2(toDecimal(delta));
 
   const rows = await tx.$queryRaw`
@@ -49,7 +80,7 @@ async function applyWalletTransaction(tx, { walletId, type, delta, referenceType
   const balanceAfter = round2(toDecimal(rows[0].balance));
   const balanceBefore = round2(balanceAfter.minus(deltaDecimal));
 
-  return tx.walletTransaction.create({
+  const walletTransaction = await tx.walletTransaction.create({
     data: {
       walletId,
       type,
@@ -61,6 +92,40 @@ async function applyWalletTransaction(tx, { walletId, type, delta, referenceType
       note,
     },
   });
+
+  // A zero-rate commission (etc.) still writes a WalletTransaction today
+  // (unchanged behaviour, e.g. so a 0% competition shows a "₦0 commission"
+  // line rather than nothing) — but a zero-amount leg carries no
+  // information for the ledger and postLedgerGroup rejects non-positive
+  // amounts, so skip it rather than special-casing zero there.
+  if (!deltaDecimal.isZero()) {
+    const wallet = await tx.wallet.findUnique({ where: { id: walletId } });
+    const walletAccount = await ledgerService.getOrCreateAccountForWallet(tx, wallet);
+    const counterpartyAccount = await resolveCounterpartyAccount(tx, counterparty);
+    const isCredit = deltaDecimal.gte(0);
+    const magnitude = deltaDecimal.abs();
+
+    await ledgerService.postLedgerGroup(tx, [
+      {
+        accountId: walletAccount.id,
+        direction: isCredit ? 'CREDIT' : 'DEBIT',
+        amount: magnitude,
+        referenceType,
+        referenceId,
+        note,
+      },
+      {
+        accountId: counterpartyAccount.id,
+        direction: isCredit ? 'DEBIT' : 'CREDIT',
+        amount: magnitude,
+        referenceType,
+        referenceId,
+        note,
+      },
+    ]);
+  }
+
+  return walletTransaction;
 }
 
 module.exports = { createWalletForUser, getWalletByUserId, getPlatformWallet, applyWalletTransaction };

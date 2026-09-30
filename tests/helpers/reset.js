@@ -12,6 +12,14 @@ async function resetDatabase() {
   await prisma.bet.deleteMany();
   await prisma.betOption.deleteMany();
   await prisma.competitionParticipant.deleteMany();
+  // Ledger entries/accounts (TASK-016/017) reference Wallet and Competition,
+  // so they have to go before those. The EXTERNAL account is a permanent,
+  // migration-seeded singleton (id: 'ledger-external-account') — kept
+  // across tests rather than wiped, same as SystemSetting defaults aren't
+  // meant to be per-test data. Its own entries ARE wiped, so each test
+  // still starts from a zero balance on it.
+  await prisma.ledgerEntry.deleteMany();
+  await prisma.ledgerAccount.deleteMany({ where: { id: { not: 'ledger-external-account' } } });
   await prisma.competition.deleteMany();
   await prisma.boardmanProfile.deleteMany();
   await prisma.withdrawal.deleteMany();

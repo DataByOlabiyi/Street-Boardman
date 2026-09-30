@@ -200,6 +200,8 @@ enum LedgerAccountType {
   USER_WALLET // mirrors an existing Wallet (Better or Boardman)
   PLATFORM // the platform's own revenue account
   ESCROW // one per competition, holds staked funds until payout (TASK-019)
+  EXTERNAL // singleton counterparty for money entering/leaving the system
+  // entirely (deposits, withdrawals) — the ledger's "outside world" account.
 }
 
 enum LedgerEntryDirection {

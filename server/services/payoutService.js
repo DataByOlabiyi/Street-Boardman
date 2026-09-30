@@ -48,7 +48,7 @@ async function claimForPayout(competitionId) {
 // so finding one already means this bet was fully paid by an earlier
 // attempt — nothing left to do. This is what makes retrying a partially
 // completed payout run (TASK-005) safe to just call again.
-async function payOneBet(bet, amount, competitionTitle) {
+async function payOneBet(bet, amount, competitionTitle, competitionId) {
   const idempotencyKey = `payout:${bet.id}`;
   return prisma.$transaction(async (tx) => {
     const existing = await tx.payout.findUnique({ where: { idempotencyKey } });
@@ -65,6 +65,7 @@ async function payOneBet(bet, amount, competitionTitle) {
       referenceType: 'Payout',
       referenceId: payout.id,
       note: `Winnings — ${competitionTitle}`,
+      counterparty: { type: 'ESCROW', competitionId },
     });
     const processed = await tx.payout.update({
       where: { id: payout.id },
@@ -121,6 +122,7 @@ async function finalizePayout(competitionId, competition, commission, losingBetI
       referenceType: 'Commission',
       referenceId: commissionRow.id,
       note: `Boardman commission — ${competition.title}`,
+      counterparty: { type: 'ESCROW', competitionId },
     });
     await walletService.applyWalletTransaction(tx, {
       walletId: platformWallet.id,
@@ -129,6 +131,7 @@ async function finalizePayout(competitionId, competition, commission, losingBetI
       referenceType: 'Commission',
       referenceId: commissionRow.id,
       note: `Platform commission — ${competition.title}`,
+      counterparty: { type: 'ESCROW', competitionId },
     });
 
     await tx.competition.update({ where: { id: competitionId }, data: { status: 'COMPLETED' } });
@@ -184,7 +187,7 @@ async function processPayoutsForCompetition(competitionId) {
 
   for (const { betId, amount } of payouts) {
     const bet = winningBets.find((b) => b.id === betId);
-    await payOneBet(bet, amount, competition.title);
+    await payOneBet(bet, amount, competition.title, competitionId);
   }
 
   // Rounding each winner's share independently can leave a few kobo
@@ -231,6 +234,7 @@ async function cancelAndRefundCompetition(competitionId) {
         referenceType: 'Bet',
         referenceId: bet.id,
         note: `Refund — ${competition.title} cancelled`,
+        counterparty: { type: 'ESCROW', competitionId },
       });
       await tx.bet.update({ where: { id: bet.id }, data: { status: 'REFUNDED' } });
     }

@@ -31,6 +31,21 @@ async function getOrCreateEscrowAccountForCompetition(tx, competitionId) {
   return tx.ledgerAccount.create({ data: { type: 'ESCROW', competitionId } });
 }
 
+// The singleton counterparty for money entering or leaving the system
+// entirely (deposits, withdrawals) — the ledger's "outside world" account.
+// Unlike the other resolvers this is find-only: it's seeded once by a
+// migration (a fixed id, 'ledger-external-account', so it can't be
+// duplicated by a race the way an on-demand get-or-create could — there's
+// no unique constraint available for "at most one row with no walletId
+// and no competitionId"). Mirrors how getPlatformWallet already works.
+async function getExternalAccount(tx) {
+  const account = await tx.ledgerAccount.findUnique({ where: { id: 'ledger-external-account' } });
+  if (!account) {
+    throw new AppError('Ledger external account is not set up — check migrations have run', 500);
+  }
+  return account;
+}
+
 // The ONLY way ledger entries are ever written. Takes a flat list of legs
 // — each { accountId, direction: 'DEBIT'|'CREDIT', amount, referenceType,
 // referenceId, note? } — and refuses to write ANY of them unless the
@@ -99,6 +114,7 @@ async function getAccountBalance(tx, accountId) {
 module.exports = {
   getOrCreateAccountForWallet,
   getOrCreateEscrowAccountForCompetition,
+  getExternalAccount,
   postLedgerGroup,
   getAccountBalance,
 };

@@ -93,6 +93,7 @@ async function placeBet({ betterId, betOptionId, stake }) {
           referenceType: 'Bet',
           referenceId: bet.id,
           note: `Stake on "${betOption.label}" — ${competition.title}`,
+          counterparty: { type: 'ESCROW', competitionId: competition.id },
         });
 
         await flagIfSelfBettingSuspected(tx, {
