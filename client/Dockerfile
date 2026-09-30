@@ -4,6 +4,12 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# Vite bakes VITE_* in at build time. Empty (the default) means the build
+# contains no Sentry code at all (TASK-042). A Sentry DSN is safe to ship
+# to browsers — it only permits sending events, not reading them.
+ARG VITE_SENTRY_DSN=
+ARG VITE_SENTRY_RELEASE=
+ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN VITE_SENTRY_RELEASE=$VITE_SENTRY_RELEASE
 RUN npm run build
 
 # The client calls a relative /api, so it has to share an origin with the

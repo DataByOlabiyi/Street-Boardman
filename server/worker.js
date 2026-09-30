@@ -6,6 +6,11 @@
 // scaled independently of the API. The advisory locks in each job
 // (server/utils/advisoryLock.js) are what actually stop two replicas of
 // *this* process from double-running the same tick.
+require('./config/env');
+const errorTracking = require('./utils/errorTracking');
+
+errorTracking.initErrorTracking();
+
 const startAutoConfirmSweep = require('./jobs/autoConfirmSweep');
 const startReconciliationSweep = require('./jobs/reconciliationSweep');
 
@@ -21,7 +26,7 @@ startReconciliationSweep();
 // interrupted tick just rolls back and the next one resumes it.
 async function shutdown(signal) {
   logger.info({ signal }, 'Shutdown signal received, worker exiting');
-  await prisma.$disconnect();
+  await Promise.all([prisma.$disconnect(), errorTracking.flush()]);
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

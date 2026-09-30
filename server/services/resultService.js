@@ -1,6 +1,7 @@
 const prisma = require('../config/db');
 const AppError = require('../utils/appError');
 const logger = require('../utils/logger');
+const errorTracking = require('../utils/errorTracking');
 const settingsService = require('./settingsService');
 const payoutService = require('./payoutService');
 const { SETTING_KEYS } = require('../config/constants');
@@ -210,6 +211,12 @@ async function recordPayoutFailure(competitionId, err) {
       },
       'Payout retries exhausted — needs manual intervention'
     );
+    // Winners are waiting on money here — this needs a human, not just a log line.
+    errorTracking.captureMessage('Payout retries exhausted', {
+      competitionId,
+      attempts: updated.payoutAttemptCount,
+      lastError: updated.lastPayoutError,
+    });
   } else {
     logger.warn(
       {

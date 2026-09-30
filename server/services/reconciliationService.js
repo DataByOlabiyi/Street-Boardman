@@ -1,6 +1,7 @@
 const prisma = require('../config/db');
 const walletService = require('./walletService');
 const logger = require('../utils/logger');
+const errorTracking = require('../utils/errorTracking');
 
 // Checks every wallet's stored balance against what the ledger derives
 // (TASK-018's per-wallet check, run across all of them). This is the
@@ -50,6 +51,10 @@ async function runDailyReconciliation() {
       },
       'Daily reconciliation found mismatched wallets'
     );
+    errorTracking.captureMessage('Daily reconciliation found mismatched wallets', {
+      mismatched: walletReport.mismatches.length,
+      walletIds: walletReport.mismatches.map((m) => m.walletId),
+    });
   } else {
     logger.info(report, 'Daily reconciliation passed');
   }

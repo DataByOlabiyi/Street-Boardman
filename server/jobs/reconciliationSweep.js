@@ -3,6 +3,7 @@ const cron = require('node-cron');
 const reconciliationService = require('../services/reconciliationService');
 const { withAdvisoryLock } = require('../utils/advisoryLock');
 const logger = require('../utils/logger');
+const errorTracking = require('../utils/errorTracking');
 const { runWithContext } = require('../utils/requestContext');
 
 const LOCK_KEY = 727002;
@@ -18,6 +19,7 @@ function startReconciliationSweep() {
         await withAdvisoryLock(LOCK_KEY, () => reconciliationService.runDailyReconciliation());
       } catch (err) {
         logger.error({ err, event: 'sweep_failed' }, 'reconciliationSweep failed');
+        errorTracking.captureException(err);
       }
     })
   );

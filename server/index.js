@@ -1,7 +1,15 @@
 // Scheduled sweeps (auto-confirm, payout retry, reconciliation) run in the
 // separate worker process (server/worker.js), not here — see TASK-022.
-const app = require('./app');
+//
+// Order matters: env loads .env (where SENTRY_DSN may live), and error
+// tracking must initialise before Express is required so the SDK can
+// instrument it.
 const env = require('./config/env');
+const errorTracking = require('./utils/errorTracking');
+
+errorTracking.initErrorTracking();
+
+const app = require('./app');
 const prisma = require('./config/db');
 const logger = require('./utils/logger');
 
@@ -16,7 +24,7 @@ const server = app.listen(env.port, () => {
 function shutdown(signal) {
   logger.info({ signal }, 'Shutdown signal received, draining connections');
   server.close(async () => {
-    await prisma.$disconnect();
+    await Promise.all([prisma.$disconnect(), errorTracking.flush()]);
     process.exit(0);
   });
   setTimeout(() => process.exit(1), 10000).unref();

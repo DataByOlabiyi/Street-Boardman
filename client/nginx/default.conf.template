@@ -33,8 +33,10 @@ server {
     location / {
         add_header Cache-Control "no-cache";
         # Everything the SPA loads is same-origin and the Vite build emits
-        # no inline scripts, so no 'unsafe-inline' is needed anywhere.
-        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+        # no inline scripts, so no 'unsafe-inline' is needed anywhere. The
+        # only cross-origin traffic is error reports to Sentry's ingest
+        # hosts (TASK-042), and only when the build has a DSN.
+        add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload";
         add_header X-Content-Type-Options nosniff;
         add_header X-Frame-Options DENY;

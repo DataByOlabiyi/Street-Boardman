@@ -4,6 +4,7 @@ const competitionService = require('../services/competitionService');
 const resultService = require('../services/resultService');
 const { withAdvisoryLock } = require('../utils/advisoryLock');
 const logger = require('../utils/logger');
+const errorTracking = require('../utils/errorTracking');
 const { runWithContext } = require('../utils/requestContext');
 
 // Arbitrary, stable — just needs to be distinct from every other job's key.
@@ -36,6 +37,7 @@ function startAutoConfirmSweep() {
         });
       } catch (err) {
         logger.error({ err, event: 'sweep_failed' }, 'autoConfirmSweep failed');
+        errorTracking.captureException(err);
       }
     })
   );
