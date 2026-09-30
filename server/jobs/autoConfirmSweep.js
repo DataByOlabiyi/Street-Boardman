@@ -1,6 +1,10 @@
 const cron = require('node-cron');
 const competitionService = require('../services/competitionService');
 const resultService = require('../services/resultService');
+const { withAdvisoryLock } = require('../utils/advisoryLock');
+
+// Arbitrary, stable — just needs to be distinct from every other job's key.
+const LOCK_KEY = 727001;
 
 // Runs every minute:
 //  1. Auto-closes betting on any competition whose deadline has passed.
@@ -16,9 +20,14 @@ const resultService = require('../services/resultService');
 function startAutoConfirmSweep() {
   cron.schedule('* * * * *', async () => {
     try {
-      await competitionService.autoCloseExpiredCompetitions();
-      await resultService.autoConfirmDueResults();
-      await resultService.retryStuckPayouts();
+      // TASK-022: if this ever runs as more than one worker replica, only
+      // one of them does the work for a given tick — the rest skip it
+      // rather than racing to auto-confirm/retry the same competitions.
+      await withAdvisoryLock(LOCK_KEY, async () => {
+        await competitionService.autoCloseExpiredCompetitions();
+        await resultService.autoConfirmDueResults();
+        await resultService.retryStuckPayouts();
+      });
     } catch (err) {
       console.error('autoConfirmSweep failed:', err);
     }
