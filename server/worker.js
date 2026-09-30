@@ -9,6 +9,19 @@
 const startAutoConfirmSweep = require('./jobs/autoConfirmSweep');
 const startReconciliationSweep = require('./jobs/reconciliationSweep');
 
+const prisma = require('./config/db');
+
 console.log('StreetBoardman worker process starting...');
 startAutoConfirmSweep();
 startReconciliationSweep();
+
+// Exiting mid-sweep is safe: each sweep runs inside a transaction holding
+// its advisory lock, and payouts are idempotent per bet (TASK-006), so an
+// interrupted tick just rolls back and the next one resumes it.
+async function shutdown(signal) {
+  console.log(`${signal} received, worker exiting`);
+  await prisma.$disconnect();
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

@@ -2,7 +2,23 @@
 // separate worker process (server/worker.js), not here — see TASK-022.
 const app = require('./app');
 const env = require('./config/env');
+const prisma = require('./config/db');
 
-app.listen(env.port, () => {
+const server = app.listen(env.port, () => {
   console.log(`StreetBoardman API running on http://localhost:${env.port} [${env.appMode} mode]`);
 });
+
+// Node as a container's PID 1 ignores SIGTERM unless handled, so without
+// this every deploy waits out the stop timeout and gets SIGKILLed with
+// requests still in flight. Stop accepting connections, let in-flight
+// requests finish, then release DB connections.
+function shutdown(signal) {
+  console.log(`${signal} received, draining connections...`);
+  server.close(async () => {
+    await prisma.$disconnect();
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
