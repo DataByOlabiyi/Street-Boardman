@@ -159,7 +159,8 @@ model Wallet {
   isDemo     Boolean    @default(true)
   createdAt  DateTime   @default(now())
 
-  transactions WalletTransaction[]
+  transactions  WalletTransaction[]
+  ledgerAccount LedgerAccount?
 }
 
 model WalletTransaction {
@@ -176,6 +177,64 @@ model WalletTransaction {
   createdAt      DateTime              @default(now())
 
   @@index([walletId])
+  @@index([referenceType, referenceId])
+}
+
+// --- Double-entry ledger (TASK-016) ---
+//
+// This is the ground truth the rest of the money system is being migrated
+// onto (TASK-017/018 rewrite the wallet write/read paths to use it).
+// WalletTransaction above is NOT replaced yet — both exist side by side
+// until that migration lands, so nothing currently reads from the ledger.
+//
+// Design: one row per (account, direction) rather than one row per
+// debit/credit PAIR, because a single economic event often has more than
+// two legs — a payout run debits one escrow account once but credits many
+// winners plus the Boardman's and the platform's commission accounts.
+// Everything that happened as one atomic event shares a `groupId`; the
+// ledger's core invariant is that every group's DEBIT amounts sum to
+// exactly its CREDIT amounts (enforced by ledgerService.postLedgerGroup,
+// not by anything in this file — Postgres has no easy way to check a
+// property across a dynamic set of sibling rows).
+enum LedgerAccountType {
+  USER_WALLET // mirrors an existing Wallet (Better or Boardman)
+  PLATFORM // the platform's own revenue account
+  ESCROW // one per competition, holds staked funds until payout (TASK-019)
+}
+
+enum LedgerEntryDirection {
+  DEBIT
+  CREDIT
+}
+
+model LedgerAccount {
+  id            String            @id @default(cuid())
+  type          LedgerAccountType
+  walletId      String?           @unique
+  wallet        Wallet?           @relation(fields: [walletId], references: [id])
+  competitionId String?           @unique
+  competition   Competition?      @relation(fields: [competitionId], references: [id])
+  createdAt     DateTime          @default(now())
+
+  entries LedgerEntry[]
+
+  @@index([type])
+}
+
+model LedgerEntry {
+  id             String               @id @default(cuid())
+  groupId        String
+  accountId      String
+  account        LedgerAccount        @relation(fields: [accountId], references: [id])
+  direction      LedgerEntryDirection
+  amount         Decimal              @db.Decimal(14, 2)
+  referenceType  String
+  referenceId    String
+  note           String?
+  createdAt      DateTime             @default(now())
+
+  @@index([accountId])
+  @@index([groupId])
   @@index([referenceType, referenceId])
 }
 
@@ -201,12 +260,13 @@ model Competition {
   payoutAttemptCount Int      @default(0)
   lastPayoutError    String?
 
-  participants CompetitionParticipant[]
-  betOptions   BetOption[]
-  bets         Bet[]
-  result       Result?
-  commission   Commission?
-  disputes     Dispute[]
+  participants  CompetitionParticipant[]
+  betOptions    BetOption[]
+  bets          Bet[]
+  result        Result?
+  commission    Commission?
+  disputes      Dispute[]
+  ledgerAccount LedgerAccount?
 
   @@index([status])
   @@index([boardmanProfileId])
