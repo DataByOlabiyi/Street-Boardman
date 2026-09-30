@@ -6,6 +6,10 @@ const resultService = require('../services/resultService');
 //  1. Auto-closes betting on any competition whose deadline has passed.
 //  2. Auto-confirms any result whose confirmation window has passed
 //     without a dispute, and runs the payout engine for it.
+//  3. Retries any competition stuck in RESULT_CONFIRMED or
+//     PAYOUT_PROCESSING (payout never started, or was interrupted
+//     partway through) — TASK-005, builds on TASK-006's resumable,
+//     per-bet-chunked payouts.
 // This is what makes "no dispute raised -> auto-confirmed" (see docs
 // section 10) actually happen without an Admin manually clicking confirm
 // on every ordinary competition.
@@ -14,6 +18,7 @@ function startAutoConfirmSweep() {
     try {
       await competitionService.autoCloseExpiredCompetitions();
       await resultService.autoConfirmDueResults();
+      await resultService.retryStuckPayouts();
     } catch (err) {
       console.error('autoConfirmSweep failed:', err);
     }

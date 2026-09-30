@@ -19,7 +19,25 @@ async function upsertUserWithWallet({ role, fullName, phone, pin, walletType }) 
   return user;
 }
 
+// Refuses to run in production unless explicitly overridden. Without this,
+// deploying with NODE_ENV=production and accidentally running `npm run
+// seed` (or a platform's auto-run-on-deploy hook) would create a
+// predictable admin account with a password taken straight from
+// .env.example (TASK-015). ALLOW_PROD_SEED=true is an explicit,
+// one-time escape hatch for a deliberate initial production bootstrap —
+// not something left on.
+function guardAgainstProductionSeed() {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PROD_SEED !== 'true') {
+    console.error(
+      'Refusing to run prisma/seed.js with NODE_ENV=production. ' +
+        'If this is a deliberate, one-time production bootstrap, re-run with ALLOW_PROD_SEED=true.'
+    );
+    process.exit(1);
+  }
+}
+
 async function main() {
+  guardAgainstProductionSeed();
   console.log('Seeding StreetBoardman demo data...');
 
   await prisma.systemSetting.upsert({

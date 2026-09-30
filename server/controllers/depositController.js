@@ -24,7 +24,10 @@ const paystackWebhook = asyncHandler(async (req, res) => {
 
   const event = JSON.parse(req.body.toString('utf8'));
   if (event.event === 'charge.success') {
-    await depositService.handlePaystackChargeSuccess(event.data.reference);
+    await depositService.handlePaystackChargeSuccess(event.data.reference, {
+      amount: event.data.amount,
+      currency: event.data.currency,
+    });
   }
   res.sendStatus(200);
 });

@@ -127,6 +127,7 @@ model User {
   withdrawals     Withdrawal[]
   disputesRaised  Dispute[]         @relation("DisputeRaisedBy")
   auditLogs       AuditLog[]
+  commissionsEarned Commission[]
 
   @@index([role])
 }
@@ -193,8 +194,16 @@ model Competition {
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
+  // Retry bookkeeping for the payout sweep (TASK-005). A competition stuck
+  // in RESULT_CONFIRMED or PAYOUT_PROCESSING gets retried a bounded number
+  // of times before the sweep gives up and logs loudly instead of retrying
+  // forever in silence.
+  payoutAttemptCount Int      @default(0)
+  lastPayoutError    String?
+
   participants CompetitionParticipant[]
   betOptions   BetOption[]
+  bets         Bet[]
   result       Result?
   commission   Commission?
   disputes     Dispute[]
@@ -219,7 +228,8 @@ model BetOption {
   participantId String?
   totalStaked   Decimal     @default(0) @db.Decimal(14, 2)
 
-  bets Bet[]
+  bets           Bet[]
+  winningResults Result[]
 }
 
 model Bet {
@@ -228,6 +238,7 @@ model Bet {
   betterId         String
   better           User        @relation(fields: [betterId], references: [id])
   competitionId    String
+  competition      Competition @relation(fields: [competitionId], references: [id])
   betOptionId      String
   betOption        BetOption   @relation(fields: [betOptionId], references: [id])
   stake            Decimal     @db.Decimal(14, 2)
@@ -248,6 +259,7 @@ model Result {
   competition           Competition  @relation(fields: [competitionId], references: [id])
   submittedByUserId     String
   winningOptionId       String
+  winningOption         BetOption    @relation(fields: [winningOptionId], references: [id])
   finalScore            String?
   evidenceUrls          String[]
   notes                 String?
@@ -274,6 +286,7 @@ model Commission {
   competitionId   String      @unique
   competition     Competition @relation(fields: [competitionId], references: [id])
   boardmanId      String
+  boardman        User        @relation(fields: [boardmanId], references: [id])
   totalStakePool  Decimal     @db.Decimal(14, 2)
   boardmanAmount  Decimal     @db.Decimal(14, 2)
   platformAmount  Decimal     @db.Decimal(14, 2)

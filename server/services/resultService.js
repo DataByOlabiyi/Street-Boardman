@@ -3,6 +3,7 @@ const AppError = require('../utils/appError');
 const settingsService = require('./settingsService');
 const payoutService = require('./payoutService');
 const { SETTING_KEYS } = require('../config/constants');
+const { recordAuditLog } = require('../middleware/auditLog');
 
 async function submitResult(boardmanProfile, competitionId, { winningOptionId, finalScore, evidenceUrls, notes }) {
   const competition = await prisma.competition.findUnique({
@@ -44,11 +45,25 @@ async function submitResult(boardmanProfile, competitionId, { winningOptionId, f
 async function raiseDispute(userId, competitionId, reason) {
   const competition = await prisma.competition.findUnique({
     where: { id: competitionId },
-    include: { result: true },
+    include: { result: true, boardmanProfile: true },
   });
   if (!competition || !competition.result) throw new AppError('No result to dispute yet', 404);
   if (competition.result.status !== 'PENDING_CONFIRMATION') {
     throw new AppError('This result can no longer be disputed', 400);
+  }
+
+  // Only someone with money on the outcome, or the Boardman who ran it, can
+  // freeze payouts by disputing — otherwise any logged-in account could
+  // grief an unrelated competition (TASK-011).
+  const isBoardman = competition.boardmanProfile.userId === userId;
+  if (!isBoardman) {
+    const hasBet = await prisma.bet.findFirst({
+      where: { competitionId, betterId: userId },
+      select: { id: true },
+    });
+    if (!hasBet) {
+      throw new AppError('Only a bettor on this competition or its Boardman can raise a dispute', 403);
+    }
   }
 
   return prisma.$transaction(async (tx) => {
@@ -81,6 +96,17 @@ async function resolveDispute(adminUserId, disputeId, { action, winningOptionId 
         where: { competitionId: dispute.competitionId },
         data: { status: 'CANCELLED' },
       });
+      await recordAuditLog(
+        {
+          actorUserId: adminUserId,
+          action: 'DISPUTE_RESOLVED_CANCELLED',
+          entityType: 'Dispute',
+          entityId: disputeId,
+          beforeState: { status: dispute.status },
+          afterState: { status: 'RESOLVED_CANCELLED' },
+        },
+        tx
+      );
     });
     return payoutService.cancelAndRefundCompetition(dispute.competitionId);
   }
@@ -102,6 +128,17 @@ async function resolveDispute(adminUserId, disputeId, { action, winningOptionId 
         where: { id: disputeId },
         data: { status: 'RESOLVED_CONFIRMED', resolvedByAdminId: adminUserId, resolvedAt: new Date() },
       });
+      await recordAuditLog(
+        {
+          actorUserId: adminUserId,
+          action: 'DISPUTE_RESOLVED_CONFIRMED',
+          entityType: 'Dispute',
+          entityId: disputeId,
+          beforeState: { status: dispute.status, winningOptionId: result.winningOptionId },
+          afterState: { status: 'RESOLVED_CONFIRMED', winningOptionId: winningOptionId || result.winningOptionId },
+        },
+        tx
+      );
     });
     return payoutService.processPayoutsForCompetition(dispute.competitionId);
   }
@@ -113,6 +150,11 @@ async function resolveDispute(adminUserId, disputeId, { action, winningOptionId 
 // with no dispute raised gets auto-confirmed and paid out. See docs on why
 // this window exists — it lets a competition close fast for everyone
 // without needing an Admin to click "confirm" on every single one.
+//
+// A payout failure for one competition no longer aborts the rest of the
+// sweep tick (TASK-005) — each is wrapped so the loop keeps going, and a
+// failure is recorded via recordPayoutFailure below so retryStuckPayouts
+// picks it back up on the next tick.
 async function autoConfirmDueResults() {
   const due = await prisma.result.findMany({
     where: { status: 'PENDING_CONFIRMATION', confirmationDeadline: { lte: new Date() } },
@@ -130,9 +172,87 @@ async function autoConfirmDueResults() {
         data: { status: 'RESULT_CONFIRMED' },
       });
     });
-    outcomes.push(await payoutService.processPayoutsForCompetition(result.competitionId));
+    try {
+      outcomes.push(await payoutService.processPayoutsForCompetition(result.competitionId));
+    } catch (err) {
+      await recordPayoutFailure(result.competitionId, err);
+      outcomes.push({ skipped: true, reason: 'Payout failed, will retry', error: err.message });
+    }
   }
   return outcomes;
 }
 
-module.exports = { submitResult, raiseDispute, resolveDispute, autoConfirmDueResults };
+const MAX_PAYOUT_ATTEMPTS = 3;
+// A competition just claimed for payout (see payoutService.claimForPayout)
+// gets at least this long before the sweep treats it as "stuck" rather
+// than "still running" — one full cron tick of grace.
+const STUCK_PAYOUT_GRACE_MS = 2 * 60 * 1000;
+
+async function recordPayoutFailure(competitionId, err) {
+  const updated = await prisma.competition.update({
+    where: { id: competitionId },
+    data: {
+      payoutAttemptCount: { increment: 1 },
+      lastPayoutError: String(err.message || err).slice(0, 500),
+    },
+  });
+  if (updated.payoutAttemptCount >= MAX_PAYOUT_ATTEMPTS) {
+    // Structured so a log-based alert (report §9, FEAT-030) can match on
+    // this event once real alert routing exists — for now this is the
+    // loud signal an operator watching logs is expected to notice.
+    console.error(
+      JSON.stringify({
+        event: 'payout_retries_exhausted',
+        competitionId,
+        attempts: updated.payoutAttemptCount,
+        lastError: updated.lastPayoutError,
+      })
+    );
+  } else {
+    console.error(
+      JSON.stringify({
+        event: 'payout_attempt_failed',
+        competitionId,
+        attempt: updated.payoutAttemptCount,
+        error: updated.lastPayoutError,
+      })
+    );
+  }
+}
+
+// Scheduled sweep, part 2: retries any competition that's still sitting in
+// RESULT_CONFIRMED (payout never even started, e.g. the process crashed
+// before claiming it) or PAYOUT_PROCESSING (claimed but interrupted
+// partway through — see payoutService's per-bet chunking) after a grace
+// period, up to MAX_PAYOUT_ATTEMPTS. This is what actually closes the gap
+// TASK-006 opened up: chunking made a payout resumable, this is what
+// resumes it without a human having to notice and click anything.
+async function retryStuckPayouts() {
+  const cutoff = new Date(Date.now() - STUCK_PAYOUT_GRACE_MS);
+  const stuck = await prisma.competition.findMany({
+    where: {
+      status: { in: ['RESULT_CONFIRMED', 'PAYOUT_PROCESSING'] },
+      updatedAt: { lte: cutoff },
+      payoutAttemptCount: { lt: MAX_PAYOUT_ATTEMPTS },
+    },
+  });
+
+  const outcomes = [];
+  for (const competition of stuck) {
+    try {
+      outcomes.push(await payoutService.processPayoutsForCompetition(competition.id));
+    } catch (err) {
+      await recordPayoutFailure(competition.id, err);
+      outcomes.push({ skipped: true, reason: 'Retry failed', error: err.message });
+    }
+  }
+  return outcomes;
+}
+
+module.exports = {
+  submitResult,
+  raiseDispute,
+  resolveDispute,
+  autoConfirmDueResults,
+  retryStuckPayouts,
+};

@@ -11,6 +11,7 @@ const {
 router.post('/register/better', authLimiter, validate(registerBetterSchema), authController.registerBetter);
 router.post('/register/boardman', authLimiter, validate(registerBoardmanSchema), authController.registerBoardman);
 router.post('/login', authLimiter, validate(loginSchema), authController.login);
+router.post('/refresh', authLimiter, authController.refresh);
 router.post('/logout', authController.logout);
 
 module.exports = router;

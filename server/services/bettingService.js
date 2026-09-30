@@ -3,8 +3,47 @@ const AppError = require('../utils/appError');
 const walletService = require('./walletService');
 const { generateBetCode } = require('../utils/idGenerator');
 const { toDecimal, round2 } = require('../utils/money');
+const { recordAuditLog } = require('../middleware/auditLog');
 
 const MIN_STAKE = 100; // NGN — keeps demo bets meaningful, avoids 1-kobo noise
+
+function normalizeName(name) {
+  return (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// Heuristic-only, flag-not-block check for a Boardman betting on their own
+// competition from a second account (TASK-014). Real device/identity
+// matching (FEAT-017, Phase 1) doesn't exist yet, so this is deliberately
+// partial: the only signal available today without new infrastructure is
+// whether the bettor's registered name matches the Boardman's own name.
+// That's weak — it catches the laziest version of the abuse and nothing
+// more — but it's a real, honest signal rather than pretending to detect
+// something the app can't yet see. A match is logged for Admin review,
+// never blocked automatically: see the open product decision in the
+// implementation plan on whether/when to hard-block.
+async function flagIfSelfBettingSuspected(tx, { betId, betterId, boardmanProfile }) {
+  const [better, boardmanUser] = await Promise.all([
+    tx.user.findUnique({ where: { id: betterId }, select: { fullName: true } }),
+    tx.user.findUnique({ where: { id: boardmanProfile.userId }, select: { fullName: true } }),
+  ]);
+  if (normalizeName(better.fullName) !== normalizeName(boardmanUser.fullName)) return;
+
+  await recordAuditLog(
+    {
+      actorUserId: betterId,
+      action: 'INSIDER_BETTING_SUSPECTED',
+      entityType: 'Bet',
+      entityId: betId,
+      beforeState: null,
+      afterState: {
+        reason: 'Bettor name matches the Boardman name for this competition',
+        betterId,
+        boardmanUserId: boardmanProfile.userId,
+      },
+    },
+    tx
+  );
+}
 
 async function placeBet({ betterId, betOptionId, stake }) {
   const stakeDecimal = round2(toDecimal(stake));
@@ -14,7 +53,7 @@ async function placeBet({ betterId, betOptionId, stake }) {
 
   const betOption = await prisma.betOption.findUnique({
     where: { id: betOptionId },
-    include: { competition: true },
+    include: { competition: { include: { boardmanProfile: true } } },
   });
   if (!betOption) throw new AppError('Betting option not found', 404);
 
@@ -54,6 +93,12 @@ async function placeBet({ betterId, betOptionId, stake }) {
           referenceType: 'Bet',
           referenceId: bet.id,
           note: `Stake on "${betOption.label}" — ${competition.title}`,
+        });
+
+        await flagIfSelfBettingSuspected(tx, {
+          betId: bet.id,
+          betterId,
+          boardmanProfile: competition.boardmanProfile,
         });
 
         const updatedOption = await tx.betOption.update({
