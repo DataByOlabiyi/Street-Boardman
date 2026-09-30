@@ -23,6 +23,34 @@ async function getPlatformWallet(prismaClient) {
   return wallet;
 }
 
+// Reads a wallet's balance FROM THE LEDGER rather than trusting the
+// Wallet.balance column — the ledger is meant to be the authoritative
+// source once TASK-017 has both in sync (TASK-018). A wallet with no
+// ledger activity yet (freshly registered, never deposited to) has no
+// LedgerAccount — that's correctly a zero balance, not an error.
+async function getLedgerDerivedBalance(prismaClient, walletId) {
+  const account = await prismaClient.ledgerAccount.findUnique({ where: { walletId } });
+  if (!account) return round2(toDecimal(0));
+  return ledgerService.getAccountBalance(prismaClient, account.id);
+}
+
+// Compares the stored Wallet.balance against what the ledger derives.
+// Any mismatch means the two have drifted — a bug, not something this
+// function fixes. TASK-020's reconciliation job is the scheduled version
+// of this same check, across every wallet.
+async function reconcileWallet(prismaClient, walletId) {
+  const wallet = await prismaClient.wallet.findUnique({ where: { id: walletId } });
+  if (!wallet) throw new AppError('Wallet not found', 404);
+  const storedBalance = round2(toDecimal(wallet.balance));
+  const ledgerBalance = await getLedgerDerivedBalance(prismaClient, walletId);
+  return {
+    walletId,
+    storedBalance,
+    ledgerBalance,
+    matches: storedBalance.equals(ledgerBalance),
+  };
+}
+
 // Resolves a `counterparty` descriptor (see applyWalletTransaction below)
 // to the LedgerAccount on the other side of the double entry.
 async function resolveCounterpartyAccount(tx, counterparty) {
@@ -128,4 +156,11 @@ async function applyWalletTransaction(tx, { walletId, type, delta, referenceType
   return walletTransaction;
 }
 
-module.exports = { createWalletForUser, getWalletByUserId, getPlatformWallet, applyWalletTransaction };
+module.exports = {
+  createWalletForUser,
+  getWalletByUserId,
+  getPlatformWallet,
+  applyWalletTransaction,
+  getLedgerDerivedBalance,
+  reconcileWallet,
+};
