@@ -456,6 +456,13 @@ model KycVerification {
   idType       KycIdType
   valueHash    String
   matched      Boolean
+  // The provider's own record of date of birth (TASK-028) — never
+  // self-reported, since that would be trivially fakeable. Only set when
+  // matched is true; a real provider returns this as part of a successful
+  // lookup, which is also why age enforcement lives here rather than at
+  // basic phone/PIN registration, where no verified DOB exists yet.
+  dateOfBirth  DateTime?
+  underage     Boolean   @default(false)
   provider     String
   verifiedAt   DateTime  @default(now())
 

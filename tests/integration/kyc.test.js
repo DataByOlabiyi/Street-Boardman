@@ -45,6 +45,30 @@ describe('kycService.verifyBvnOrNin (TASK-026)', () => {
     expect(record.idType).toBe('NIN');
   });
 
+  it('matches the identity but refuses to upgrade the tier when the provider shows under 18 (TASK-028)', async () => {
+    const { userId } = await setupBetter();
+    const result = await kycService.verifyBvnOrNin(userId, { idType: 'NIN', value: '22222222222' });
+
+    expect(result.matched).toBe(true);
+    expect(result.underage).toBe(true);
+    expect(result.kycTier).toBe('TIER_0');
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    expect(user.kycTier).toBe('TIER_0');
+
+    const record = await prisma.kycVerification.findFirst({ where: { userId } });
+    expect(record.matched).toBe(true);
+    expect(record.underage).toBe(true);
+    expect(record.dateOfBirth).not.toBeNull();
+  });
+
+  it('does not flag an adult match as underage', async () => {
+    const { userId } = await setupBetter();
+    const result = await kycService.verifyBvnOrNin(userId, { idType: 'BVN', value: '33344455566' });
+    expect(result.underage).toBe(false);
+    expect(result.kycTier).toBe('TIER_1');
+  });
+
   it('never stores the raw BVN/NIN value', async () => {
     const { userId } = await setupBetter();
     await kycService.verifyBvnOrNin(userId, { idType: 'BVN', value: '98765432109' });

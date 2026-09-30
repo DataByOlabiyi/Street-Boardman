@@ -12,17 +12,34 @@ function hashIdentityValue(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+const MIN_AGE_YEARS = 18;
+
+function calculateAge(dateOfBirth) {
+  const now = new Date();
+  let age = now.getFullYear() - dateOfBirth.getFullYear();
+  const hasHadBirthdayThisYear =
+    now.getMonth() > dateOfBirth.getMonth() ||
+    (now.getMonth() === dateOfBirth.getMonth() && now.getDate() >= dateOfBirth.getDate());
+  if (!hasHadBirthdayThisYear) age -= 1;
+  return age;
+}
+
 // Verifies a BVN or NIN against the (stubbed, see kycProvider.js) provider
-// and records the attempt either way. A match upgrades the user straight
-// to TIER_1 — there's no separate "review" state in this MVP; a real
-// provider integration would likely also check the returned name matches
-// the account's fullName, which the stub doesn't yet model.
+// and records the attempt either way. A match upgrades the user to TIER_1
+// — UNLESS the provider's own date of birth shows they're under 18
+// (TASK-028), in which case the match is recorded but the tier stays at
+// TIER_0 and no amount of retrying with the same or a different real ID
+// changes that outcome; this is a genuine, not a soft, rejection. There's
+// no separate "review" state in this MVP; a real provider integration
+// would likely also check the returned name matches the account's
+// fullName, which the stub doesn't yet model.
 async function verifyBvnOrNin(userId, { idType, value }) {
   if (!['BVN', 'NIN'].includes(idType)) {
     throw new AppError('idType must be BVN or NIN', 422);
   }
 
-  const { matched, provider } = await kycProvider.verifyIdentity({ idType, value });
+  const { matched, dateOfBirth, provider } = await kycProvider.verifyIdentity({ idType, value });
+  const underage = matched && dateOfBirth ? calculateAge(dateOfBirth) < MIN_AGE_YEARS : false;
 
   await prisma.kycVerification.create({
     data: {
@@ -30,15 +47,18 @@ async function verifyBvnOrNin(userId, { idType, value }) {
       idType,
       valueHash: hashIdentityValue(value),
       matched,
+      dateOfBirth: dateOfBirth ?? undefined,
+      underage,
       provider,
     },
   });
 
-  if (matched) {
+  const upgrades = matched && !underage;
+  if (upgrades) {
     await prisma.user.update({ where: { id: userId }, data: { kycTier: 'TIER_1' } });
   }
 
-  return { matched, kycTier: matched ? 'TIER_1' : 'TIER_0' };
+  return { matched, underage, kycTier: upgrades ? 'TIER_1' : 'TIER_0' };
 }
 
 module.exports = { verifyBvnOrNin };
