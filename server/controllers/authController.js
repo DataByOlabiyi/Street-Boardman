@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
 const authService = require('../services/authService');
+const deviceService = require('../services/deviceService');
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require('../utils/jwt');
 const { COOKIE_NAMES } = require('../config/constants');
 const env = require('../config/env');
@@ -36,13 +37,15 @@ function toPublicUser(user) {
 }
 
 const registerBetter = asyncHandler(async (req, res) => {
-  const user = await authService.registerBetter(req.body);
+  const fingerprint = deviceService.computeFingerprint(req);
+  const user = await authService.registerBetter(req.body, fingerprint);
   issueSession(res, user);
   res.status(201).json({ user: toPublicUser(user) });
 });
 
 const registerBoardman = asyncHandler(async (req, res) => {
-  const user = await authService.registerBoardman(req.body);
+  const fingerprint = deviceService.computeFingerprint(req);
+  const user = await authService.registerBoardman(req.body, fingerprint);
   issueSession(res, user);
   res.status(201).json({
     user: toPublicUser(user),

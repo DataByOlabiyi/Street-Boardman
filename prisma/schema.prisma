@@ -124,6 +124,10 @@ model User {
   // TIER_0 (default): phone only. TIER_1: BVN/NIN matched (TASK-026),
   // required before normal withdrawal limits apply (TASK-027).
   kycTier        KycTier    @default(TIER_0)
+  // A hash of (IP + User-Agent) captured at registration (TASK-029) — a
+  // weak signal (shared wifi, phone reinstalls, browser updates all
+  // change it), used only to flag, never to block. See deviceService.js.
+  deviceFingerprint String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
@@ -138,6 +142,7 @@ model User {
   kycVerifications KycVerification[]
 
   @@index([role])
+  @@index([deviceFingerprint])
 }
 
 model BoardmanProfile {

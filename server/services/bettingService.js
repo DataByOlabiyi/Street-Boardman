@@ -12,21 +12,32 @@ function normalizeName(name) {
 }
 
 // Heuristic-only, flag-not-block check for a Boardman betting on their own
-// competition from a second account (TASK-014). Real device/identity
-// matching (FEAT-017, Phase 1) doesn't exist yet, so this is deliberately
-// partial: the only signal available today without new infrastructure is
-// whether the bettor's registered name matches the Boardman's own name.
-// That's weak — it catches the laziest version of the abuse and nothing
-// more — but it's a real, honest signal rather than pretending to detect
-// something the app can't yet see. A match is logged for Admin review,
-// never blocked automatically: see the open product decision in the
-// implementation plan on whether/when to hard-block.
+// competition from a second account (TASK-014). Two weak signals, either
+// one enough to flag: the bettor's registered name matches the Boardman's
+// own name, or (TASK-029) they registered from the same device
+// fingerprint. Neither is proof — shared wifi/a family device can trigger
+// the second, a common name the first — but both are real, honest signals
+// rather than pretending to detect something the app can't yet see. A
+// match is logged for Admin review, never blocked automatically: see the
+// open product decision in the implementation plan on whether/when to
+// hard-block.
 async function flagIfSelfBettingSuspected(tx, { betId, betterId, boardmanProfile }) {
   const [better, boardmanUser] = await Promise.all([
-    tx.user.findUnique({ where: { id: betterId }, select: { fullName: true } }),
-    tx.user.findUnique({ where: { id: boardmanProfile.userId }, select: { fullName: true } }),
+    tx.user.findUnique({ where: { id: betterId }, select: { fullName: true, deviceFingerprint: true } }),
+    tx.user.findUnique({
+      where: { id: boardmanProfile.userId },
+      select: { fullName: true, deviceFingerprint: true },
+    }),
   ]);
-  if (normalizeName(better.fullName) !== normalizeName(boardmanUser.fullName)) return;
+
+  const nameMatches = normalizeName(better.fullName) === normalizeName(boardmanUser.fullName);
+  const deviceMatches =
+    Boolean(better.deviceFingerprint) && better.deviceFingerprint === boardmanUser.deviceFingerprint;
+  if (!nameMatches && !deviceMatches) return;
+
+  const reasons = [];
+  if (nameMatches) reasons.push('name matches the Boardman');
+  if (deviceMatches) reasons.push('registered from the same device as the Boardman');
 
   await recordAuditLog(
     {
@@ -36,7 +47,7 @@ async function flagIfSelfBettingSuspected(tx, { betId, betterId, boardmanProfile
       entityId: betId,
       beforeState: null,
       afterState: {
-        reason: 'Bettor name matches the Boardman name for this competition',
+        reason: reasons.join('; '),
         betterId,
         boardmanUserId: boardmanProfile.userId,
       },

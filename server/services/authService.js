@@ -2,35 +2,38 @@ const prisma = require('../config/db');
 const AppError = require('../utils/appError');
 const password = require('../utils/password');
 const walletService = require('./walletService');
+const deviceService = require('./deviceService');
 const { ROLES } = require('../config/constants');
 
-async function registerBetter({ fullName, phone, pin }) {
+async function registerBetter({ fullName, phone, pin }, fingerprint) {
   const existing = await prisma.user.findUnique({ where: { phone } });
   if (existing) throw new AppError('An account with this phone number already exists', 409);
 
   const pinHash = await password.hash(pin);
   return prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
-      data: { role: ROLES.BETTER, fullName, phone, passwordHash: pinHash },
+      data: { role: ROLES.BETTER, fullName, phone, passwordHash: pinHash, deviceFingerprint: fingerprint },
     });
     await walletService.createWalletForUser(tx, user.id, 'BETTER', true);
+    await deviceService.flagIfDeviceReused(tx, { newUserId: user.id, fingerprint });
     return user;
   });
 }
 
-async function registerBoardman({ fullName, phone, pin, businessLocation, kycDocumentUrl }) {
+async function registerBoardman({ fullName, phone, pin, businessLocation, kycDocumentUrl }, fingerprint) {
   const existing = await prisma.user.findUnique({ where: { phone } });
   if (existing) throw new AppError('An account with this phone number already exists', 409);
 
   const pinHash = await password.hash(pin);
   return prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
-      data: { role: ROLES.BOARDMAN, fullName, phone, passwordHash: pinHash },
+      data: { role: ROLES.BOARDMAN, fullName, phone, passwordHash: pinHash, deviceFingerprint: fingerprint },
     });
     await tx.boardmanProfile.create({
       data: { userId: user.id, businessLocation, kycDocumentUrl, approvalStatus: 'PENDING_APPROVAL' },
     });
     await walletService.createWalletForUser(tx, user.id, 'BOARDMAN', true);
+    await deviceService.flagIfDeviceReused(tx, { newUserId: user.id, fingerprint });
     return user;
   });
 }
