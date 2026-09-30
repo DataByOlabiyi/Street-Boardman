@@ -1,17 +1,20 @@
 const prisma = require('../config/db');
 const AppError = require('../utils/appError');
 const { recordAuditLog } = require('../middleware/auditLog');
+const { STAFF_VISIBLE_USER_FIELDS } = require('../utils/userSelect');
+
+const staffUser = { select: STAFF_VISIBLE_USER_FIELDS };
 
 async function listPendingBoardmen() {
   return prisma.boardmanProfile.findMany({
     where: { approvalStatus: 'PENDING_APPROVAL' },
-    include: { user: true },
+    include: { user: staffUser },
     orderBy: { createdAt: 'asc' },
   });
 }
 
 async function listAllBoardmen() {
-  return prisma.boardmanProfile.findMany({ include: { user: true }, orderBy: { createdAt: 'desc' } });
+  return prisma.boardmanProfile.findMany({ include: { user: staffUser }, orderBy: { createdAt: 'desc' } });
 }
 
 async function approveBoardman(boardmanProfileId, adminUserId) {
@@ -68,26 +71,34 @@ async function suspendBoardman(boardmanProfileId, adminUserId) {
 }
 
 async function suspendUser(userId, adminUserId) {
-  const updated = await prisma.user.update({ where: { id: userId }, data: { status: 'SUSPENDED' } });
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { status: 'SUSPENDED' },
+    select: STAFF_VISIBLE_USER_FIELDS,
+  });
   await recordAuditLog({ actorUserId: adminUserId, action: 'USER_SUSPENDED', entityType: 'User', entityId: userId });
   return updated;
 }
 
 async function reactivateUser(userId, adminUserId) {
-  const updated = await prisma.user.update({ where: { id: userId }, data: { status: 'ACTIVE' } });
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { status: 'ACTIVE' },
+    select: STAFF_VISIBLE_USER_FIELDS,
+  });
   await recordAuditLog({ actorUserId: adminUserId, action: 'USER_REACTIVATED', entityType: 'User', entityId: userId });
   return updated;
 }
 
 async function listUsers() {
-  return prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
+  return prisma.user.findMany({ orderBy: { createdAt: 'desc' }, select: STAFF_VISIBLE_USER_FIELDS });
 }
 
 async function getFinancialLedger({ take = 100 } = {}) {
   return prisma.walletTransaction.findMany({
     orderBy: { createdAt: 'desc' },
     take,
-    include: { wallet: { include: { user: true } } },
+    include: { wallet: { include: { user: staffUser } } },
   });
 }
 
@@ -103,7 +114,11 @@ async function setStaffRole(targetUserId, staffRole, actingAdminId) {
     throw new AppError('Only an ADMIN-role account can hold a staff role', 422);
   }
 
-  const updated = await prisma.user.update({ where: { id: targetUserId }, data: { staffRole } });
+  const updated = await prisma.user.update({
+    where: { id: targetUserId },
+    data: { staffRole },
+    select: STAFF_VISIBLE_USER_FIELDS,
+  });
   await recordAuditLog({
     actorUserId: actingAdminId,
     action: 'STAFF_ROLE_CHANGED',

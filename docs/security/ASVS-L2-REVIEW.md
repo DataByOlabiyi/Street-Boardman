@@ -8,11 +8,11 @@ This is an internal review done by reading the code and exercising it with tests
 
 | | Count |
 |---|---|
-| Issues found and **fixed** in this review | 9 |
+| Issues found and **fixed** in this review | 10 |
 | Money bugs found by the property tests just before this review (TASK-045), fixed | 2 |
 | **Open** items needing a decision or later work | 10 |
 
-The biggest risks at the start were around **logins and sessions**. A 4-digit PIN had no per-account guessing limit. Logging out didn't actually end a session, and a session could be refreshed forever without logging in again. All three are fixed.
+The most serious finding was **F0**: admin list screens sent other accounts' PIN hashes and MFA secrets to any staff member. Next came **logins and sessions**. A 4-digit PIN had no per-account guessing limit. Logging out didn't actually end a session, and a session could be refreshed forever without logging in again. All three are fixed.
 
 Most remaining open items are **decisions**, not bugs: PIN length, making MFA mandatory for staff, and step-up confirmation for withdrawals. There is also **scaling work** needed before running more than one API instance (shared rate-limit store, TASK-033 secrets).
 
@@ -22,6 +22,7 @@ Every fix has tests; files are in `tests/integration/` unless noted.
 
 | # | ASVS | Issue | Fix | Tests |
 |---|---|---|---|---|
+| F0 | 8.3.1 / 4.2 | **Admin endpoints leaked credentials.** User lists, both Boardman lists, competitions, the ledger, and the suspend/reactivate/approve/staff-role responses returned whole `User` rows, including PIN hashes and TOTP secrets. Any staff member with view access (e.g. SUPPORT) could generate a SUPER_ADMIN's MFA codes and attack their PIN offline, a direct path to full admin takeover. | One allow-list of staff-visible user fields (`server/utils/userSelect.js`), used by every admin query. New `User` columns stay private unless deliberately added to it. | `adminDataExposure` (finds admin GET routes automatically; fails on the old code at 6 endpoints) |
 | F1 | 2.2.1 | Guessing was limited **per IP only**. A 4-digit PIN is 10,000 guesses, and an attacker spreading them across many IPs was never stopped. | Per-account lockout: 5 wrong PINs **or MFA codes** lock the account for 15 minutes (≈20 guesses/hour max). The lock is checked before the PIN is compared, concurrent guesses are counted atomically, and unknown phone numbers cost the same bcrypt time. Locks are logged as `account_locked` for alerting. | `authLockout`, `mfaLockout` |
 | F2 | 3.3.1 | **Logout didn't end the session.** It only cleared cookies; a copied refresh token stayed valid for 7 days. | `User.tokenVersion` is stamped into every token and checked on every request and refresh. Logout bumps it, which signs out all of that account's devices. | `securityHardening` |
 | F3 | 3.3.1 / 2.8 | Turning MFA on didn't sign out other devices, so a stolen session survived the owner securing the account. | Enabling or disabling MFA bumps `tokenVersion`. The device making the change gets fresh cookies; every other device is signed out. | `securityHardening` |
