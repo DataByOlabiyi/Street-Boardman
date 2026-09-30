@@ -24,7 +24,18 @@ async function transferFunds(withdrawal) {
 // (so the user can't spend the same money twice while it's "pending"), and
 // an Admin/queue later marks it PROCESSED (money actually sent) or
 // REJECTED (money returned to the wallet).
+//
+// Gated by KYC tier (TASK-027): TIER_0 (phone-verified only) cannot
+// withdraw at all — only a BVN/NIN-matched TIER_1 account (TASK-026) can.
+// Checked before anything else so an unverified user's wallet is never
+// touched by a withdrawal attempt that was always going to be refused.
 async function requestWithdrawal(userId, amount, destination) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { kycTier: true } });
+  if (!user) throw new AppError('User not found', 404);
+  if (user.kycTier !== 'TIER_1') {
+    throw new AppError('Verify your BVN or NIN before you can withdraw', 403);
+  }
+
   const amountDecimal = round2(toDecimal(amount));
   if (amountDecimal.lte(0)) throw new AppError('Withdrawal amount must be positive', 422);
 
