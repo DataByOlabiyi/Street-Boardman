@@ -121,6 +121,9 @@ model User {
   // yet enforced as a hard gate on registration/login — see otpService.js
   // and the scope note on that task.
   phoneVerifiedAt DateTime?
+  // TIER_0 (default): phone only. TIER_1: BVN/NIN matched (TASK-026),
+  // required before normal withdrawal limits apply (TASK-027).
+  kycTier        KycTier    @default(TIER_0)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
@@ -132,6 +135,7 @@ model User {
   disputesRaised  Dispute[]         @relation("DisputeRaisedBy")
   auditLogs       AuditLog[]
   commissionsEarned Commission[]
+  kycVerifications KycVerification[]
 
   @@index([role])
 }
@@ -429,6 +433,33 @@ model SystemSetting {
 enum OtpPurpose {
   SIGNUP
   BANK_ACCOUNT_CHANGE
+}
+
+enum KycTier {
+  TIER_0
+  TIER_1
+}
+
+enum KycIdType {
+  BVN
+  NIN
+}
+
+// One row per verification attempt (TASK-026). The raw BVN/NIN is never
+// stored — only its hash, same reasoning as passwordHash/OtpCode.codeHash.
+// Kept even for a mismatch: it's the audit trail for "this user tried to
+// verify and failed", which matters for fraud review.
+model KycVerification {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  idType       KycIdType
+  valueHash    String
+  matched      Boolean
+  provider     String
+  verifiedAt   DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // One-time codes for phone verification (TASK-025). `code` stores a hash,

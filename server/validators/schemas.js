@@ -30,6 +30,11 @@ const otpVerifySchema = z.object({
   code: z.string().length(6, 'Enter the 6-digit code'),
 });
 
+const kycVerifySchema = z.object({
+  idType: z.enum(['BVN', 'NIN']),
+  value: z.string().length(11, 'BVN/NIN must be 11 digits').regex(/^\d+$/, 'Digits only'),
+});
+
 const demoDepositSchema = z.object({ amount: z.number().positive() });
 
 const paystackInitializeSchema = z.object({ amount: z.number().positive() });
@@ -83,6 +88,7 @@ module.exports = {
   loginSchema,
   otpRequestSchema,
   otpVerifySchema,
+  kycVerifySchema,
   demoDepositSchema,
   paystackInitializeSchema,
   withdrawalSchema,

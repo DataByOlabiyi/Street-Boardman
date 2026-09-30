@@ -5,6 +5,7 @@ const prisma = require('../../server/config/db');
 // .env, migrated) — see docs/TESTING.md. Never point this at production.
 async function resetDatabase() {
   await prisma.otpCode.deleteMany();
+  await prisma.kycVerification.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.dispute.deleteMany();
   await prisma.payout.deleteMany();

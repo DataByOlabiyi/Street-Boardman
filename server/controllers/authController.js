@@ -24,7 +24,15 @@ function issueSession(res, user) {
 }
 
 function toPublicUser(user) {
-  return { id: user.id, role: user.role, fullName: user.fullName, phone: user.phone, status: user.status };
+  return {
+    id: user.id,
+    role: user.role,
+    fullName: user.fullName,
+    phone: user.phone,
+    status: user.status,
+    phoneVerifiedAt: user.phoneVerifiedAt,
+    kycTier: user.kycTier,
+  };
 }
 
 const registerBetter = asyncHandler(async (req, res) => {
