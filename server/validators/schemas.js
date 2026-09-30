@@ -19,6 +19,17 @@ const registerBoardmanSchema = z.object({
 
 const loginSchema = z.object({ phone, pin });
 
+const otpRequestSchema = z.object({
+  phone,
+  purpose: z.enum(['SIGNUP', 'BANK_ACCOUNT_CHANGE']),
+});
+
+const otpVerifySchema = z.object({
+  phone,
+  purpose: z.enum(['SIGNUP', 'BANK_ACCOUNT_CHANGE']),
+  code: z.string().length(6, 'Enter the 6-digit code'),
+});
+
 const demoDepositSchema = z.object({ amount: z.number().positive() });
 
 const paystackInitializeSchema = z.object({ amount: z.number().positive() });
@@ -70,6 +81,8 @@ module.exports = {
   registerBetterSchema,
   registerBoardmanSchema,
   loginSchema,
+  otpRequestSchema,
+  otpVerifySchema,
   demoDepositSchema,
   paystackInitializeSchema,
   withdrawalSchema,

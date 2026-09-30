@@ -108,17 +108,21 @@ enum DisputeStatus {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  role         Role
-  fullName     String
-  phone        String     @unique
-  email        String?
-  passwordHash String
-  pinHash      String?
-  status       UserStatus @default(ACTIVE)
-  isDemo       Boolean    @default(true)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id             String     @id @default(cuid())
+  role           Role
+  fullName       String
+  phone          String     @unique
+  email          String?
+  passwordHash   String
+  pinHash        String?
+  status         UserStatus @default(ACTIVE)
+  isDemo         Boolean    @default(true)
+  // Set once an OTP verification succeeds for this phone (TASK-025). Not
+  // yet enforced as a hard gate on registration/login — see otpService.js
+  // and the scope note on that task.
+  phoneVerifiedAt DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   boardmanProfile BoardmanProfile?
   wallet          Wallet?
@@ -420,4 +424,26 @@ model SystemSetting {
   value           String
   updatedByAdminId String?
   updatedAt       DateTime @updatedAt
+}
+
+enum OtpPurpose {
+  SIGNUP
+  BANK_ACCOUNT_CHANGE
+}
+
+// One-time codes for phone verification (TASK-025). `code` stores a hash,
+// never the raw digits — same reasoning as passwordHash. A phone can have
+// several rows over time (one per request); only the latest unconsumed,
+// unexpired one for a given phone+purpose is valid.
+model OtpCode {
+  id          String     @id @default(cuid())
+  phone       String
+  purpose     OtpPurpose
+  codeHash    String
+  attempts    Int        @default(0)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime   @default(now())
+
+  @@index([phone, purpose])
 }
