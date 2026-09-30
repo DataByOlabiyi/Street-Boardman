@@ -14,10 +14,13 @@ const env = require('../config/env');
 const prisma = require('../config/db');
 const AppError = require('../utils/appError');
 
+// Derived centrally in config/env.js (TASK-032) — secure/sameSite need to
+// stay coupled (SameSite=None without Secure gets silently dropped by
+// browsers), so that logic lives in one place, not duplicated here.
 const cookieOptions = {
   httpOnly: true,
-  secure: env.nodeEnv === 'production',
-  sameSite: 'lax',
+  secure: env.cookies.secure,
+  sameSite: env.cookies.sameSite,
 };
 
 function issueSession(res, user) {

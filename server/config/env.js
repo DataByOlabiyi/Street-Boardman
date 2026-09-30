@@ -36,11 +36,31 @@ function requiredJwtSecret(name, devDefault) {
   return value;
 }
 
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+const ALLOWED_SAME_SITE = ['lax', 'strict', 'none'];
+const cookieSameSite = (process.env.COOKIE_SAME_SITE || 'lax').toLowerCase();
+if (!ALLOWED_SAME_SITE.includes(cookieSameSite)) {
+  throw new Error(`COOKIE_SAME_SITE must be one of ${ALLOWED_SAME_SITE.join(', ')}, got "${cookieSameSite}"`);
+}
+
 module.exports = {
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv: NODE_ENV,
   port: Number(process.env.PORT || 4000),
   appMode: process.env.APP_MODE || 'DEMO', // 'DEMO' | 'PRODUCTION'
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+
+  // Cross-site deployments (client and API on different registrable
+  // domains) need SameSite=None to have the browser send the session
+  // cookie on API fetches at all — but browsers silently drop None
+  // cookies that aren't also Secure, which would look like login
+  // "succeeding" and then every subsequent request being unauthenticated.
+  // Forcing secure here whenever sameSite is 'none' (regardless of
+  // NODE_ENV) turns that into a loud failure in dev instead (TASK-032).
+  cookies: {
+    sameSite: cookieSameSite,
+    secure: NODE_ENV === 'production' || cookieSameSite === 'none',
+  },
 
   // Number of reverse-proxy hops (load balancer, CDN, etc.) Express should
   // trust the X-Forwarded-For chain through when determining req.ip. This

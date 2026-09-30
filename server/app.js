@@ -16,7 +16,27 @@ const app = express();
 // trusting everything (TASK-010).
 app.set('trust proxy', env.trustProxyHops);
 
-app.use(helmet());
+// This is a JSON-only API — the client SPA is a separate deployment, and
+// nothing here ever renders HTML — so CSP can be locked all the way down
+// instead of using helmet's page-oriented defaults (TASK-032).
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+    // frame-ancestors above already covers modern browsers; this is the
+    // legacy header for anything that only understands X-Frame-Options.
+    frameguard: { action: 'deny' },
+  })
+);
 app.use(cors({ origin: env.clientOrigin, credentials: true }));
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 app.use(cookieParser());

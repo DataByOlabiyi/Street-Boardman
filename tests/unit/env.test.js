@@ -54,3 +54,56 @@ describe('config/env — JWT secret fail-fast in production (TASK-008)', () => {
     expect(loadEnv).not.toThrow();
   });
 });
+
+// TASK-032: session cookies must never end up SameSite=None without also
+// being Secure — browsers silently drop that combination, which looks
+// like a working login followed by every request being unauthenticated.
+describe('config/env — cookie SameSite/Secure derivation (TASK-032)', () => {
+  const ORIGINAL_ENV = process.env;
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  function loadEnv() {
+    return require('../../server/config/env');
+  }
+
+  it('defaults to SameSite=Lax and not Secure outside production', () => {
+    process.env.NODE_ENV = 'development';
+    delete process.env.COOKIE_SAME_SITE;
+    const env = loadEnv();
+    expect(env.cookies.sameSite).toBe('lax');
+    expect(env.cookies.secure).toBe(false);
+  });
+
+  it('is Secure in production even with the default SameSite=Lax', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_ACCESS_SECRET = 'a'.repeat(40);
+    process.env.JWT_REFRESH_SECRET = 'b'.repeat(40);
+    process.env.JWT_MFA_CHALLENGE_SECRET = 'c'.repeat(40);
+    delete process.env.COOKIE_SAME_SITE;
+    const env = loadEnv();
+    expect(env.cookies.sameSite).toBe('lax');
+    expect(env.cookies.secure).toBe(true);
+  });
+
+  it('forces Secure whenever SameSite=None, even outside production', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.COOKIE_SAME_SITE = 'none';
+    const env = loadEnv();
+    expect(env.cookies.sameSite).toBe('none');
+    expect(env.cookies.secure).toBe(true);
+  });
+
+  it('rejects an invalid COOKIE_SAME_SITE value at startup', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.COOKIE_SAME_SITE = 'sometimes';
+    expect(loadEnv).toThrow(/COOKIE_SAME_SITE/);
+  });
+});
