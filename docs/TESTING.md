@@ -171,6 +171,14 @@ returned — check nothing else is holding a long transaction open against
 The migration wasn't applied to `streetboardman_test`. Re-run step 5's
 `prisma migrate deploy` against that database.
 
+**"Refusing to wipe database ..."**
+`tests/helpers/reset.js` deletes every row, so it checks the database it's
+connected to and refuses anything whose name doesn't contain `test`. If
+you see this, `.env.test` is pointing at the wrong database: fix
+`DATABASE_URL` / `APP_DATABASE_URL` there. (`tests/setupEnv.js` loads
+`.env.test` before any test code, because importing `@prisma/client`
+would otherwise pull in your dev `.env` first.)
+
 **"password authentication failed for user streetboardman_app"**
 The role's password doesn't match `APP_DATABASE_URL`. Postgres roles are
 shared across every database on the server, so if you ran

@@ -1,5 +1,8 @@
-const { PrismaClient } = require('@prisma/client');
+// env first: importing @prisma/client auto-loads the root .env, and
+// dotenv never overrides an already-set variable — so if Prisma loaded
+// first, NODE_ENV=test would silently get the dev database URL.
 const env = require('./env');
+const { PrismaClient } = require('@prisma/client');
 
 // One Prisma client for the whole process. Creating a new one per request
 // would exhaust Postgres connections.
