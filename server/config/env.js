@@ -62,6 +62,13 @@ module.exports = {
     secure: NODE_ENV === 'production' || cookieSameSite === 'none',
   },
 
+  // The running server/worker connect with a least-privilege DB role that
+  // can only read/write existing rows, not run DDL (see prisma/roles.sql,
+  // TASK-034). Falls back to DATABASE_URL — the migrator/owner
+  // connection — when unset, so this is opt-in and never breaks an
+  // environment that hasn't provisioned the restricted role yet.
+  appDatabaseUrl: process.env.APP_DATABASE_URL || required('DATABASE_URL'),
+
   // Number of reverse-proxy hops (load balancer, CDN, etc.) Express should
   // trust the X-Forwarded-For chain through when determining req.ip. This
   // MUST match the real deployment topology: 0 (the default) is correct
