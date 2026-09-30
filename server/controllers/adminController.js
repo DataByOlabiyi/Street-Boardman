@@ -41,6 +41,11 @@ const reactivateUser = asyncHandler(async (req, res) => {
   res.json({ user });
 });
 
+const setStaffRole = asyncHandler(async (req, res) => {
+  const user = await adminService.setStaffRole(req.params.id, req.body.staffRole, req.user.id);
+  res.json({ user });
+});
+
 const listCompetitions = asyncHandler(async (req, res) => {
   const competitions = await prisma.competition.findMany({
     include: { betOptions: true, result: true, boardmanProfile: { include: { user: true } } },
@@ -118,6 +123,7 @@ module.exports = {
   listUsers,
   suspendUser,
   reactivateUser,
+  setStaffRole,
   listCompetitions,
   listBets,
   listDisputes,

@@ -4,12 +4,15 @@ const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
-async function upsertUserWithWallet({ role, fullName, phone, pin, walletType }) {
+async function upsertUserWithWallet({ role, fullName, phone, pin, walletType, staffRole }) {
   const passwordHash = await bcrypt.hash(pin, 10);
   const user = await prisma.user.upsert({
     where: { phone },
-    update: {},
-    create: { role, fullName, phone, passwordHash },
+    // Re-running the seed against an already-seeded database (this
+    // repo's own dev DB, mid-session) should still grant staffRole to an
+    // existing admin row, not just a freshly created one.
+    update: staffRole ? { staffRole } : {},
+    create: { role, fullName, phone, passwordHash, staffRole: staffRole ?? undefined },
   });
   await prisma.wallet.upsert({
     where: { userId: user.id },
@@ -62,6 +65,9 @@ async function main() {
     phone: process.env.SEED_ADMIN_PHONE || '08000000000',
     pin: process.env.SEED_ADMIN_PASSWORD || 'Admin@12345',
     walletType: 'PLATFORM',
+    // Full access (TASK-030) — without this the seeded admin could log in
+    // but couldn't do anything, since staffRole defaults to null.
+    staffRole: 'SUPER_ADMIN',
   });
 
   const boardmanUser = await upsertUserWithWallet({

@@ -91,6 +91,30 @@ async function getFinancialLedger({ take = 100 } = {}) {
   });
 }
 
+// Grants or revokes a staff sub-role (TASK-030). Gated by MANAGE_STAFF at
+// the route layer — only a SUPER_ADMIN can reach this. The target must
+// already be an ADMIN-role account; a staffRole on a Better/Boardman
+// account would be meaningless (they can never pass requireRole('ADMIN')
+// to use it).
+async function setStaffRole(targetUserId, staffRole, actingAdminId) {
+  const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+  if (!target) throw new AppError('User not found', 404);
+  if (target.role !== 'ADMIN') {
+    throw new AppError('Only an ADMIN-role account can hold a staff role', 422);
+  }
+
+  const updated = await prisma.user.update({ where: { id: targetUserId }, data: { staffRole } });
+  await recordAuditLog({
+    actorUserId: actingAdminId,
+    action: 'STAFF_ROLE_CHANGED',
+    entityType: 'User',
+    entityId: targetUserId,
+    beforeState: { staffRole: target.staffRole },
+    afterState: { staffRole },
+  });
+  return updated;
+}
+
 module.exports = {
   listPendingBoardmen,
   listAllBoardmen,
@@ -101,4 +125,5 @@ module.exports = {
   reactivateUser,
   listUsers,
   getFinancialLedger,
+  setStaffRole,
 };

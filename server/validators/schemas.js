@@ -30,6 +30,10 @@ const otpVerifySchema = z.object({
   code: z.string().length(6, 'Enter the 6-digit code'),
 });
 
+const setStaffRoleSchema = z.object({
+  staffRole: z.enum(['SUPPORT', 'FINANCE', 'COMPLIANCE', 'SUPER_ADMIN']).nullable(),
+});
+
 const kycVerifySchema = z.object({
   idType: z.enum(['BVN', 'NIN']),
   value: z.string().length(11, 'BVN/NIN must be 11 digits').regex(/^\d+$/, 'Digits only'),
@@ -89,6 +93,7 @@ module.exports = {
   otpRequestSchema,
   otpVerifySchema,
   kycVerifySchema,
+  setStaffRoleSchema,
   demoDepositSchema,
   paystackInitializeSchema,
   withdrawalSchema,

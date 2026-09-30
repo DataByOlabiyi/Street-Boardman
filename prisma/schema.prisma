@@ -128,6 +128,10 @@ model User {
   // weak signal (shared wifi, phone reinstalls, browser updates all
   // change it), used only to flag, never to block. See deviceService.js.
   deviceFingerprint String?
+  // Only meaningful for role=ADMIN users (TASK-030). null means "no staff
+  // permissions granted" — including for an ADMIN account, deliberately:
+  // being able to log in and being able to act are different questions.
+  staffRole      StaffRole?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
@@ -443,6 +447,16 @@ enum OtpPurpose {
 enum KycTier {
   TIER_0
   TIER_1
+}
+
+// Staff sub-roles (TASK-030), distinct from the base Role enum (which just
+// says "this account can reach admin routes at all"). See
+// server/config/staffPermissions.js for what each one can actually do.
+enum StaffRole {
+  SUPPORT
+  FINANCE
+  COMPLIANCE
+  SUPER_ADMIN
 }
 
 enum KycIdType {
