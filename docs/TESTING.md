@@ -188,6 +188,39 @@ password and use that same value in both `.env` and `.env.test`.
 
 ---
 
+## Hermetic runs (no database setup)
+
+If Docker is running, you can skip all the Postgres setup above:
+
+```bash
+npm run test:hermetic
+```
+
+This starts a throwaway Postgres 16 container (via Testcontainers),
+applies every migration, provisions the `streetboardman_app` role, runs
+the whole suite through it, and deletes the container afterwards. It
+takes about a minute longer than `npm test`, and it can't touch any other
+database on your machine.
+
+## Property-based money tests
+
+`tests/unit/moneyProperties.test.js` and
+`tests/integration/moneyConservation.property.test.js` use
+[fast-check](https://fast-check.dev). Instead of a few hand-picked
+examples, they generate random pools, stakes, commission rates,
+outcomes, and concurrent settlements, and check invariants that must
+always hold: no naira created or destroyed, the ledger agrees with every
+wallet, escrow ends empty, and settling twice pays once. When one fails,
+fast-check shrinks it to the smallest failing example and prints it.
+Pin that example in the test's `examples` list once it's fixed.
+
+The integration property runs 30 random competitions by default. Run
+more before touching payout or refund code:
+
+```bash
+PROPERTY_RUNS=300 npx jest tests/integration/moneyConservation.property.test.js
+```
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every pull request and every push to
