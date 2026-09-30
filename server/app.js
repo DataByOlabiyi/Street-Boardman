@@ -27,6 +27,9 @@ app.use(httpLogger);
 app.use(
   helmet({
     contentSecurityPolicy: {
+      // Without this, helmet merges its page-oriented defaults
+      // (script-src, style-src 'unsafe-inline', ...) into the policy.
+      useDefaults: false,
       directives: {
         defaultSrc: ["'none'"],
         frameAncestors: ["'none'"],

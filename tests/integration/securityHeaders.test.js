@@ -19,8 +19,9 @@ describe('Security headers on every response (TASK-032)', () => {
     const res = await request(app).get('/health');
 
     expect(res.status).toBe(200);
-    expect(res.headers['content-security-policy']).toContain("default-src 'none'");
-    expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    // Exact match, not toContain: helmet silently merges extra default
+    // directives unless told not to, and toContain would miss that.
+    expect(res.headers['content-security-policy']).toBe("default-src 'none';frame-ancestors 'none'");
     expect(res.headers['strict-transport-security']).toContain('max-age=31536000');
     expect(res.headers['strict-transport-security']).toContain('includeSubDomains');
     expect(res.headers['x-content-type-options']).toBe('nosniff');
