@@ -2,12 +2,12 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const morgan = require('morgan');
 
 const env = require('./config/env');
 const routes = require('./routes');
 const depositController = require('./controllers/depositController');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
+const { requestId, httpLogger } = require('./middleware/requestLogger');
 
 const app = express();
 
@@ -15,6 +15,11 @@ const app = express();
 // especially) — see env.trustProxyHops for why this can't just default to
 // trusting everything (TASK-010).
 app.set('trust proxy', env.trustProxyHops);
+
+// First, so every request — including ones rejected by later middleware —
+// gets an ID and a log line (TASK-041).
+app.use(requestId);
+app.use(httpLogger);
 
 // This is a JSON-only API — the client SPA is a separate deployment, and
 // nothing here ever renders HTML — so CSP can be locked all the way down
@@ -37,8 +42,7 @@ app.use(
     frameguard: { action: 'deny' },
   })
 );
-app.use(cors({ origin: env.clientOrigin, credentials: true }));
-app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
+app.use(cors({ origin: env.clientOrigin, credentials: true, exposedHeaders: ['X-Request-Id'] }));
 app.use(cookieParser());
 
 // This one route needs the exact raw bytes of the request body to verify

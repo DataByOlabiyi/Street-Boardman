@@ -3,9 +3,10 @@
 const app = require('./app');
 const env = require('./config/env');
 const prisma = require('./config/db');
+const logger = require('./utils/logger');
 
 const server = app.listen(env.port, () => {
-  console.log(`StreetBoardman API running on http://localhost:${env.port} [${env.appMode} mode]`);
+  logger.info({ port: env.port, appMode: env.appMode }, 'StreetBoardman API listening');
 });
 
 // Node as a container's PID 1 ignores SIGTERM unless handled, so without
@@ -13,7 +14,7 @@ const server = app.listen(env.port, () => {
 // requests still in flight. Stop accepting connections, let in-flight
 // requests finish, then release DB connections.
 function shutdown(signal) {
-  console.log(`${signal} received, draining connections...`);
+  logger.info({ signal }, 'Shutdown signal received, draining connections');
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

@@ -10,8 +10,9 @@ const startAutoConfirmSweep = require('./jobs/autoConfirmSweep');
 const startReconciliationSweep = require('./jobs/reconciliationSweep');
 
 const prisma = require('./config/db');
+const logger = require('./utils/logger');
 
-console.log('StreetBoardman worker process starting...');
+logger.info('StreetBoardman worker process starting');
 startAutoConfirmSweep();
 startReconciliationSweep();
 
@@ -19,7 +20,7 @@ startReconciliationSweep();
 // its advisory lock, and payouts are idempotent per bet (TASK-006), so an
 // interrupted tick just rolls back and the next one resumes it.
 async function shutdown(signal) {
-  console.log(`${signal} received, worker exiting`);
+  logger.info({ signal }, 'Shutdown signal received, worker exiting');
   await prisma.$disconnect();
   process.exit(0);
 }

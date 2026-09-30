@@ -1,5 +1,6 @@
 const AppError = require('../utils/appError');
 const env = require('../config/env');
+const logger = require('../utils/logger');
 
 // Stands in for a real SMS gateway (Termii or Africa's Talking, per the
 // implementation plan) until one is wired up with real credentials
@@ -16,7 +17,8 @@ async function sendOtp(phone, code) {
       501
     );
   }
-  console.log(`[DEMO SMS] OTP for ${phone}: ${code}`);
+  // Code only ever reaches logs in DEMO mode — PRODUCTION throws above.
+  logger.info({ event: 'demo_sms_otp', phone, code }, `[DEMO SMS] OTP for ${phone}: ${code}`);
   return { success: true, provider: 'demo-console' };
 }
 

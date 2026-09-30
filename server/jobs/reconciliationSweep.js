@@ -1,6 +1,9 @@
+const crypto = require('crypto');
 const cron = require('node-cron');
 const reconciliationService = require('../services/reconciliationService');
 const { withAdvisoryLock } = require('../utils/advisoryLock');
+const logger = require('../utils/logger');
+const { runWithContext } = require('../utils/requestContext');
 
 const LOCK_KEY = 727002;
 
@@ -8,14 +11,16 @@ const LOCK_KEY = 727002;
 // the every-minute autoConfirmSweep so the two never compete for the same
 // rows. Checks every wallet's stored balance against the ledger (TASK-020).
 function startReconciliationSweep() {
-  cron.schedule('0 3 * * *', async () => {
-    try {
-      // TASK-022: same double-run protection as autoConfirmSweep.
-      await withAdvisoryLock(LOCK_KEY, () => reconciliationService.runDailyReconciliation());
-    } catch (err) {
-      console.error('reconciliationSweep failed:', err);
-    }
-  });
+  cron.schedule('0 3 * * *', () =>
+    runWithContext({ job: 'reconciliationSweep', tickId: crypto.randomUUID() }, async () => {
+      try {
+        // TASK-022: same double-run protection as autoConfirmSweep.
+        await withAdvisoryLock(LOCK_KEY, () => reconciliationService.runDailyReconciliation());
+      } catch (err) {
+        logger.error({ err, event: 'sweep_failed' }, 'reconciliationSweep failed');
+      }
+    })
+  );
 }
 
 module.exports = startReconciliationSweep;

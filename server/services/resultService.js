@@ -1,5 +1,6 @@
 const prisma = require('../config/db');
 const AppError = require('../utils/appError');
+const logger = require('../utils/logger');
 const settingsService = require('./settingsService');
 const payoutService = require('./payoutService');
 const { SETTING_KEYS } = require('../config/constants');
@@ -200,22 +201,24 @@ async function recordPayoutFailure(competitionId, err) {
     // Structured so a log-based alert (report §9, FEAT-030) can match on
     // this event once real alert routing exists — for now this is the
     // loud signal an operator watching logs is expected to notice.
-    console.error(
-      JSON.stringify({
+    logger.error(
+      {
         event: 'payout_retries_exhausted',
         competitionId,
         attempts: updated.payoutAttemptCount,
         lastError: updated.lastPayoutError,
-      })
+      },
+      'Payout retries exhausted — needs manual intervention'
     );
   } else {
-    console.error(
-      JSON.stringify({
+    logger.warn(
+      {
         event: 'payout_attempt_failed',
         competitionId,
         attempt: updated.payoutAttemptCount,
         error: updated.lastPayoutError,
-      })
+      },
+      'Payout attempt failed, will retry'
     );
   }
 }

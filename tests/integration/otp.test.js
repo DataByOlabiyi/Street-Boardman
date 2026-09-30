@@ -2,6 +2,7 @@ const request = require('supertest');
 const app = require('../../server/app');
 const { resetDatabase, prisma } = require('../helpers/reset');
 const otpService = require('../../server/services/otpService');
+const logger = require('../../server/utils/logger');
 
 beforeEach(async () => {
   await resetDatabase();
@@ -12,15 +13,16 @@ afterAll(async () => {
 });
 
 // DEMO mode's smsProvider logs the code instead of sending it — tests
-// capture it the same way a real user would receive it, via console.log,
-// rather than reading the hashed DB column (which is deliberately opaque).
+// capture it from that log event, rather than reading the hashed DB
+// column (which is deliberately opaque).
 async function requestAndCaptureCode(phone, purpose) {
-  const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  const logSpy = jest.spyOn(logger, 'info');
   await otpService.requestOtp(phone, purpose);
-  const line = logSpy.mock.calls.map((args) => args[0]).find((l) => typeof l === 'string' && l.includes(phone));
+  const event = logSpy.mock.calls
+    .map((args) => args[0])
+    .find((obj) => obj && obj.event === 'demo_sms_otp' && obj.phone === phone);
   logSpy.mockRestore();
-  const match = line.match(/OTP for .*: (\d{6})/);
-  return match[1];
+  return event.code;
 }
 
 describe('otpService (TASK-025)', () => {

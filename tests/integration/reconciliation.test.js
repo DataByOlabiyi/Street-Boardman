@@ -2,6 +2,7 @@ const request = require('supertest');
 const app = require('../../server/app');
 const { resetDatabase, prisma } = require('../helpers/reset');
 const reconciliationService = require('../../server/services/reconciliationService');
+const logger = require('../../server/utils/logger');
 
 let phoneCounter = 0;
 async function setupFundedBetter(amount = 5000) {
@@ -50,29 +51,31 @@ describe('reconciliationService (TASK-020)', () => {
 
   it('runDailyReconciliation returns a pass report and logs it', async () => {
     await setupFundedBetter(1000);
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const logSpy = jest.spyOn(logger, 'info');
 
     const report = await reconciliationService.runDailyReconciliation();
 
     expect(report.pass).toBe(true);
     expect(report.wallets.mismatched).toBe(0);
     expect(report.providerSettlement).toMatch(/not_yet_available/);
-    expect(logSpy).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({ event: 'daily_reconciliation', pass: true }), expect.any(String));
 
     logSpy.mockRestore();
   });
 
-  it('runDailyReconciliation logs loudly (console.error) when something fails to reconcile', async () => {
+  it('runDailyReconciliation logs at error level when something fails to reconcile', async () => {
     const { userId } = await setupFundedBetter(1000);
     const wallet = await prisma.wallet.findUnique({ where: { userId } });
     await prisma.$executeRaw`UPDATE "Wallet" SET balance = 999999 WHERE id = ${wallet.id}`;
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(logger, 'error');
 
     const report = await reconciliationService.runDailyReconciliation();
 
     expect(report.pass).toBe(false);
-    expect(errorSpy).toHaveBeenCalled();
+    const logged = errorSpy.mock.calls[0][0];
+    expect(logged).toMatchObject({ event: 'daily_reconciliation', pass: false });
+    expect(logged.mismatches.some((m) => m.walletId === wallet.id)).toBe(true);
 
     errorSpy.mockRestore();
   });
