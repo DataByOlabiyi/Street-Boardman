@@ -170,3 +170,26 @@ returned — check nothing else is holding a long transaction open against
 **"relation does not exist" errors during tests**
 The migration wasn't applied to `streetboardman_test`. Re-run step 5's
 `prisma migrate deploy` against that database.
+
+**"password authentication failed for user streetboardman_app"**
+The role's password doesn't match `APP_DATABASE_URL`. Postgres roles are
+shared across every database on the server, so if you ran
+`prisma/roles.sql` against both your dev and test databases with
+different passwords, only the last one is live. Re-run it with one
+password and use that same value in both `.env` and `.env.test`.
+
+---
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request and every push to
+`main`. It has two jobs:
+
+- **Server tests**: starts a fresh Postgres 16, applies every migration
+  with `prisma migrate deploy`, provisions the `streetboardman_app` role
+  from `prisma/roles.sql`, then runs `npm test` through that restricted
+  role. A migration that doesn't apply cleanly to an empty database, or
+  app code that suddenly needs DDL at runtime, fails the build.
+- **Client build**: `npm ci` and `npm run build` in `client/`.
+
+The Node version for both jobs comes from `.nvmrc`.
