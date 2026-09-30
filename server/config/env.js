@@ -17,6 +17,7 @@ function required(name, fallback) {
 // silently (TASK-008).
 const DEV_DEFAULT_ACCESS_SECRET = 'dev-access-secret';
 const DEV_DEFAULT_REFRESH_SECRET = 'dev-refresh-secret';
+const DEV_DEFAULT_MFA_CHALLENGE_SECRET = 'dev-mfa-challenge-secret';
 const MIN_SECRET_LENGTH = 32;
 
 function requiredJwtSecret(name, devDefault) {
@@ -53,8 +54,15 @@ module.exports = {
   jwt: {
     accessSecret: requiredJwtSecret('JWT_ACCESS_SECRET', DEV_DEFAULT_ACCESS_SECRET),
     refreshSecret: requiredJwtSecret('JWT_REFRESH_SECRET', DEV_DEFAULT_REFRESH_SECRET),
+    // Deliberately a DIFFERENT secret from accessSecret (TASK-031) — an MFA
+    // challenge token proves "password was correct" only, not "second
+    // factor was verified". If it were signed with accessSecret it would
+    // double as a fully valid session token and requireAuth would accept it
+    // as-is, defeating the whole point of the second step.
+    mfaChallengeSecret: requiredJwtSecret('JWT_MFA_CHALLENGE_SECRET', DEV_DEFAULT_MFA_CHALLENGE_SECRET),
     accessTtl: process.env.JWT_ACCESS_TTL || '15m',
     refreshTtl: process.env.JWT_REFRESH_TTL || '7d',
+    mfaChallengeTtl: process.env.JWT_MFA_CHALLENGE_TTL || '5m',
   },
 
   paystack: {

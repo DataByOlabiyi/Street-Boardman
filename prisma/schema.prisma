@@ -132,6 +132,12 @@ model User {
   // permissions granted" — including for an ADMIN account, deliberately:
   // being able to log in and being able to act are different questions.
   staffRole      StaffRole?
+  // TOTP secret (TASK-031). Set but mfaEnabledAt still null = enrollment
+  // in progress (generated, not yet confirmed with a valid code). Once
+  // mfaEnabledAt is set, login for this account always requires a code —
+  // no bypass path exists.
+  mfaSecret      String?
+  mfaEnabledAt   DateTime?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 

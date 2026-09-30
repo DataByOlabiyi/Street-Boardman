@@ -30,6 +30,15 @@ const otpVerifySchema = z.object({
   code: z.string().length(6, 'Enter the 6-digit code'),
 });
 
+const mfaVerifySchema = z.object({
+  mfaToken: z.string().min(1),
+  code: z.string().length(6, 'Enter the 6-digit code'),
+});
+
+const mfaCodeSchema = z.object({
+  code: z.string().length(6, 'Enter the 6-digit code'),
+});
+
 const setStaffRoleSchema = z.object({
   staffRole: z.enum(['SUPPORT', 'FINANCE', 'COMPLIANCE', 'SUPER_ADMIN']).nullable(),
 });
@@ -90,6 +99,8 @@ module.exports = {
   registerBetterSchema,
   registerBoardmanSchema,
   loginSchema,
+  mfaVerifySchema,
+  mfaCodeSchema,
   otpRequestSchema,
   otpVerifySchema,
   kycVerifySchema,

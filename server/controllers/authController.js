@@ -1,7 +1,14 @@
 const asyncHandler = require('../utils/asyncHandler');
 const authService = require('../services/authService');
 const deviceService = require('../services/deviceService');
-const { signAccessToken, signRefreshToken, verifyRefreshToken } = require('../utils/jwt');
+const mfaService = require('../services/mfaService');
+const {
+  signAccessToken,
+  signRefreshToken,
+  verifyRefreshToken,
+  signMfaChallengeToken,
+  verifyMfaChallengeToken,
+} = require('../utils/jwt');
 const { COOKIE_NAMES } = require('../config/constants');
 const env = require('../config/env');
 const prisma = require('../config/db');
@@ -53,10 +60,62 @@ const registerBoardman = asyncHandler(async (req, res) => {
   });
 });
 
+// Accounts without MFA enabled (the seeded admin, every Better/Boardman,
+// any admin who hasn't completed enrollment yet) keep the existing
+// single-step login — MFA is mandatory only from the moment an admin
+// finishes setup, not retroactively forced on every staff account
+// (TASK-031).
 const login = asyncHandler(async (req, res) => {
   const user = await authService.login(req.body);
+
+  if (user.mfaEnabledAt) {
+    const mfaToken = signMfaChallengeToken(user);
+    return res.json({ mfaRequired: true, mfaToken });
+  }
+
   issueSession(res, user);
   res.json({ user: toPublicUser(user) });
+});
+
+const mfaVerify = asyncHandler(async (req, res) => {
+  const { mfaToken, code } = req.body;
+  if (!mfaToken || !code) throw new AppError('mfaToken and code are required', 400);
+
+  let payload;
+  try {
+    payload = verifyMfaChallengeToken(mfaToken);
+  } catch (err) {
+    throw new AppError('MFA challenge expired, please log in again', 401);
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+  if (!user || !user.mfaEnabledAt) throw new AppError('MFA challenge expired, please log in again', 401);
+  if (user.status === 'SUSPENDED') throw new AppError('Account suspended, contact support', 403);
+
+  const isValid = await mfaService.verifyToken(user.id, code);
+  if (!isValid) throw new AppError('Incorrect code', 400);
+
+  issueSession(res, user);
+  res.json({ user: toPublicUser(user) });
+});
+
+const mfaSetupStart = asyncHandler(async (req, res) => {
+  const { secret, otpauthUrl } = await mfaService.startSetup(req.user.id);
+  res.json({ secret, otpauthUrl });
+});
+
+const mfaSetupConfirm = asyncHandler(async (req, res) => {
+  const { code } = req.body;
+  if (!code) throw new AppError('code is required', 400);
+  const result = await mfaService.confirmSetup(req.user.id, code);
+  res.json(result);
+});
+
+const mfaDisable = asyncHandler(async (req, res) => {
+  const { code } = req.body;
+  if (!code) throw new AppError('code is required', 400);
+  const result = await mfaService.disableMfa(req.user.id, code);
+  res.json(result);
 });
 
 const logout = asyncHandler(async (req, res) => {
@@ -98,4 +157,15 @@ const refresh = asyncHandler(async (req, res) => {
   res.json({ user: toPublicUser(user) });
 });
 
-module.exports = { registerBetter, registerBoardman, login, logout, refresh, toPublicUser };
+module.exports = {
+  registerBetter,
+  registerBoardman,
+  login,
+  mfaVerify,
+  mfaSetupStart,
+  mfaSetupConfirm,
+  mfaDisable,
+  logout,
+  refresh,
+  toPublicUser,
+};

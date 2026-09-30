@@ -31,10 +31,19 @@ describe('config/env — JWT secret fail-fast in production (TASK-008)', () => {
     expect(loadEnv).toThrow(/JWT_REFRESH_SECRET/);
   });
 
-  it('starts fine in production with two distinct, long secrets', () => {
+  it('throws when JWT_MFA_CHALLENGE_SECRET is still the development default in production', () => {
     process.env.NODE_ENV = 'production';
     process.env.JWT_ACCESS_SECRET = 'a'.repeat(40);
     process.env.JWT_REFRESH_SECRET = 'b'.repeat(40);
+    delete process.env.JWT_MFA_CHALLENGE_SECRET;
+    expect(loadEnv).toThrow(/JWT_MFA_CHALLENGE_SECRET/);
+  });
+
+  it('starts fine in production with three distinct, long secrets', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_ACCESS_SECRET = 'a'.repeat(40);
+    process.env.JWT_REFRESH_SECRET = 'b'.repeat(40);
+    process.env.JWT_MFA_CHALLENGE_SECRET = 'c'.repeat(40);
     expect(loadEnv).not.toThrow();
   });
 
