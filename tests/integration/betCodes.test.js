@@ -73,6 +73,26 @@ describe('Bet codes under concurrency', () => {
     expect((await prisma.wallet.findUnique({ where: { id: wallet.id } })).balance.toString()).toBe('1000');
   });
 
+  it('estimates the payout as if the bet were already counted, and updates the option total', async () => {
+    // Empty match, 5% + 3% commission: a lone ₦1,000 bet would get ₦920 back.
+    const first = await bettingService.placeBet({ betterId: bettorIds[0], betOptionId, stake: 1000 });
+    expect(first.potentialPayout.toString()).toBe('920');
+    expect(first.betOption.totalStaked.toString()).toBe('1000');
+
+    // Second ₦1,000 on the same side: pool 2,000 -> 1,840 shared 50/50.
+    const second = await bettingService.placeBet({ betterId: bettorIds[1], betOptionId, stake: 1000 });
+    expect(second.potentialPayout.toString()).toBe('920');
+    expect(second.betOption.totalStaked.toString()).toBe('2000');
+  });
+
+  it('keeps the option total exact under concurrent bets', async () => {
+    await Promise.all(Array.from({ length: 20 }, (_, i) =>
+      bettingService.placeBet({ betterId: bettorIds[i % bettorIds.length], betOptionId, stake: 100 })
+    ));
+    const option = await prisma.betOption.findUnique({ where: { id: betOptionId } });
+    expect(option.totalStaked.toString()).toBe('2000');
+  });
+
   it('never reissues a code after a bet is deleted', async () => {
     const first = await bettingService.placeBet({ betterId: bettorIds[0], betOptionId, stake: 100 });
     const second = await bettingService.placeBet({ betterId: bettorIds[1], betOptionId, stake: 100 });

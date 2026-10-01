@@ -76,6 +76,24 @@ async function placeBet({ betterId, betOptionId, stake }) {
     throw new AppError('Betting deadline has passed', 400);
   }
 
+  // Rough live estimate only: (this bet's share of its option) times the
+  // whole pool, minus commission, as if this bet were already counted.
+  // The real payout is only known once betting closes — the UI labels
+  // this as an estimate. Read without locks, BEFORE the transaction: on a
+  // busy match every bet increments one of the same few BetOption rows,
+  // and the load test (TASK-048) showed bets queueing on that row lock
+  // (Postgres sessions waiting on Lock:transactionid, p95 ~0.9-1.3 s at
+  // 200 bettors). Computing this inside the transaction after the
+  // increment held the lock through two more round trips.
+  const options = await prisma.betOption.findMany({ where: { competitionId: competition.id } });
+  const poolAfter = options.reduce((sum, o) => sum.plus(toDecimal(o.totalStaked)), stakeDecimal);
+  const optionAfter = toDecimal(options.find((o) => o.id === betOptionId).totalStaked).plus(stakeDecimal);
+  const estimatedPayout = round2(
+    poolAfter
+      .times(1 - competition.boardmanCommissionRate - competition.platformCommissionRate)
+      .times(stakeDecimal.dividedBy(optionAfter))
+  );
+
   return prisma.$transaction(async (tx) => {
     const betCode = await generateBetCode(tx);
     const wallet = await walletService.getWalletByUserId(tx, betterId);
@@ -87,7 +105,7 @@ async function placeBet({ betterId, betOptionId, stake }) {
         competitionId: competition.id,
         betOptionId,
         stake: stakeDecimal,
-        potentialPayout: stakeDecimal, // placeholder estimate, refined below
+        potentialPayout: estimatedPayout,
         status: 'OPEN',
       },
     });
@@ -108,28 +126,14 @@ async function placeBet({ betterId, betOptionId, stake }) {
       boardmanProfile: competition.boardmanProfile,
     });
 
+    // Last statement before commit, so the hot row is locked for as
+    // little time as possible (see the estimate above).
     const updatedOption = await tx.betOption.update({
       where: { id: betOptionId },
       data: { totalStaked: { increment: stakeDecimal } },
     });
 
-    // Rough live estimate only: (this bet's share of the option so far)
-    // times the current whole-competition pool, minus commission. The
-    // real payout is only known once betting closes and all stakes are
-    // in — this is clearly labelled as an estimate to the Better.
-    const allOptions = await tx.betOption.findMany({ where: { competitionId: competition.id } });
-    const wholePool = allOptions.reduce((sum, o) => sum.plus(toDecimal(o.totalStaked)), toDecimal(0));
-    const afterCommission = wholePool
-      .times(1 - competition.boardmanCommissionRate - competition.platformCommissionRate);
-    const estimatedPayout = round2(
-      afterCommission.times(stakeDecimal.dividedBy(toDecimal(updatedOption.totalStaked)))
-    );
-
-    return tx.bet.update({
-      where: { id: bet.id },
-      data: { potentialPayout: estimatedPayout },
-      include: { betOption: true },
-    });
+    return { ...bet, betOption: updatedOption };
   });
 }
 
