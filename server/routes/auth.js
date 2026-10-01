@@ -3,7 +3,7 @@ const authController = require('../controllers/authController');
 const validate = require('../middleware/validate');
 const requireAuth = require('../middleware/auth');
 const requireRole = require('../middleware/requireRole');
-const { authLimiter } = require('../middleware/rateLimit');
+const { authLimiter, mfaManageLimiter } = require('../middleware/rateLimit');
 const {
   registerBetterSchema,
   registerBoardmanSchema,
@@ -23,14 +23,22 @@ router.post('/password', authLimiter, requireAuth, validate(changePasswordSchema
 
 // MFA enrollment/management (TASK-031) — only for already-authenticated
 // ADMIN accounts, since staff are the only accounts this covers.
-router.post('/mfa/setup', requireAuth, requireRole('ADMIN'), authController.mfaSetupStart);
+router.post('/mfa/setup', requireAuth, requireRole('ADMIN'), mfaManageLimiter, authController.mfaSetupStart);
 router.post(
   '/mfa/setup/confirm',
   requireAuth,
   requireRole('ADMIN'),
+  mfaManageLimiter,
   validate(mfaCodeSchema),
   authController.mfaSetupConfirm
 );
-router.post('/mfa/disable', requireAuth, requireRole('ADMIN'), validate(mfaCodeSchema), authController.mfaDisable);
+router.post(
+  '/mfa/disable',
+  requireAuth,
+  requireRole('ADMIN'),
+  mfaManageLimiter,
+  validate(mfaCodeSchema),
+  authController.mfaDisable
+);
 
 module.exports = router;

@@ -91,7 +91,7 @@ async function verifyToken(userId, token) {
 // toggle, since that would defeat the point of a second factor.
 async function disableMfa(userId, token) {
   const isValid = await verifyToken(userId, token);
-  if (!isValid) throw new AppError('Incorrect code', 400);
+  if (!isValid) throw new AppError('Incorrect code', 400, 'INCORRECT_CODE');
   await prisma.user.update({
     where: { id: userId },
     data: { mfaSecret: null, mfaEnabledAt: null, mfaLastTimeStep: null, tokenVersion: { increment: 1 } },

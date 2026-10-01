@@ -142,7 +142,17 @@ const mfaSetupConfirm = asyncHandler(async (req, res) => {
 const mfaDisable = asyncHandler(async (req, res) => {
   const { code } = req.body;
   if (!code) throw new AppError('code is required', 400);
-  const result = await mfaService.disableMfa(req.user.id, code);
+  // Turning MFA off is exactly what someone holding a stolen session would
+  // want, so wrong codes here burn the same lockout budget as login.
+  authService.assertNotLocked(req.user);
+  let result;
+  try {
+    result = await mfaService.disableMfa(req.user.id, code);
+  } catch (err) {
+    if (err.code === 'INCORRECT_CODE') await authService.recordFailedAttempt(req.user.id);
+    throw err;
+  }
+  await authService.clearFailedAttempts(req.user);
   await reissueForCurrentDevice(res, req.user.id);
   res.json(result);
 });
@@ -162,11 +172,10 @@ function userIdFromSessionCookies(req) {
     [req.cookies?.[COOKIE_NAMES.ACCESS], verifyAccessToken],
   ];
   for (const [token, verify] of attempts) {
-    if (!token) continue;
     try {
       return verify(token).sub;
     } catch {
-      // expired or tampered — try the other cookie
+      // missing, expired or tampered — try the other cookie
     }
   }
   return null;

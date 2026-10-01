@@ -9,6 +9,7 @@ const depositController = require('./controllers/depositController');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { requestId, httpLogger } = require('./middleware/requestLogger');
 const requireSameOrigin = require('./middleware/sameOrigin');
+const { apiLimiter } = require('./middleware/rateLimit');
 
 const app = express();
 
@@ -68,7 +69,7 @@ app.use('/api', (req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
 });
-app.use('/api', requireSameOrigin, routes);
+app.use('/api', apiLimiter, requireSameOrigin, routes);
 
 app.use(notFound);
 app.use(errorHandler);

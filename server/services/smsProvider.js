@@ -18,7 +18,8 @@ async function sendOtp(phone, code) {
     );
   }
   // Code only ever reaches logs in DEMO mode — PRODUCTION throws above.
-  logger.info({ event: 'demo_sms_otp', phone, code }, `[DEMO SMS] OTP for ${phone}: ${code}`);
+  // Values go in structured fields, never interpolated into the message.
+  logger.info({ event: 'demo_sms_otp', phone, code }, '[DEMO SMS] OTP issued');
   return { success: true, provider: 'demo-console' };
 }
 
