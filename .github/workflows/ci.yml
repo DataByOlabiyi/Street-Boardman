@@ -86,6 +86,38 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  infra:
+    name: Infrastructure checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - name: Format
+        run: terraform -chdir=infra fmt -recursive -check
+      - name: Validate
+        run: |
+          for dir in infra/terraform infra/bootstrap; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done
+      - uses: terraform-linters/setup-tflint@v4
+      - name: Lint
+        run: |
+          cd infra/terraform
+          for env in dev staging prod; do tflint --var-file="envs/$env.tfvars"; done
+      # Deliberate exceptions are documented inline as checkov:skip with a reason.
+      - name: Security scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra
+          framework: terraform
+          quiet: true
+      - name: Workflow lint
+        uses: raven-actions/actionlint@v2
+
   images:
     name: Docker images
     runs-on: ubuntu-latest
