@@ -38,6 +38,11 @@ function startAutoConfirmSweep() {
       } catch (err) {
         logger.error({ err, event: 'sweep_failed' }, 'autoConfirmSweep failed');
         errorTracking.captureException(err);
+      } finally {
+        // Heartbeat: a worker that dies or hangs logs nothing at all, and
+        // payouts silently stop. The CloudWatch "worker heartbeat missing"
+        // alarm (infra/terraform/monitoring.tf) fires when these stop.
+        logger.info({ event: 'sweep_tick' }, 'autoConfirmSweep tick');
       }
     })
   );

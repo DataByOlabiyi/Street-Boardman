@@ -25,7 +25,10 @@ RUN npx prisma generate
 
 # Runs `prisma migrate deploy` as the owner role in DATABASE_URL — a
 # one-shot job before api/worker roll out, never part of their startup.
+# In ECS the command is overridden to also run
+# scripts/provision-db-roles.js (no psql in this image).
 FROM build AS migrate
+COPY scripts ./scripts
 USER node
 CMD ["npx", "prisma", "migrate", "deploy"]
 
