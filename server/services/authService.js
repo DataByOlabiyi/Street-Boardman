@@ -5,6 +5,8 @@ const walletService = require('./walletService');
 const deviceService = require('./deviceService');
 const { ROLES } = require('../config/constants');
 const logger = require('../utils/logger');
+const staffSecurity = require('./staffSecurityService');
+const { recordAuditLog } = require('../middleware/auditLog');
 
 async function registerBetter({ fullName, phone, pin }, fingerprint) {
   const existing = await prisma.user.findUnique({ where: { phone } });
@@ -109,6 +111,13 @@ async function login({ phone, pin }) {
     throw new AppError('Invalid phone number or PIN', 401);
   }
 
+  // The only moment the plaintext is available to check its length.
+  const weak = staffSecurity.isWeakStaffPassword(user, pin);
+  if (weak !== user.mustChangePassword) {
+    await prisma.user.update({ where: { id: user.id }, data: { mustChangePassword: weak } });
+    user.mustChangePassword = weak;
+  }
+
   // With MFA on, the PIN is only half the login — the counter resets once
   // the code is verified too, so PIN guesses and code guesses share one
   // budget.
@@ -116,10 +125,57 @@ async function login({ phone, pin }) {
   return user;
 }
 
+// Re-confirms the PIN before a sensitive action (ASVS 3.7.1) — so a
+// hijacked session, or a phone left unlocked, can't move money out on its
+// own. Wrong PINs here count toward the same lockout as login, otherwise
+// a stolen session would be an unlimited PIN-guessing oracle.
+async function verifyPinStepUp(userId, pin) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AppError('Not authenticated', 401);
+  assertNotLocked(user);
+  const valid = await password.compare(pin, user.passwordHash);
+  if (!valid) {
+    await recordFailedAttempt(user.id);
+    throw new AppError('Incorrect PIN', 401);
+  }
+  await clearFailedAttempts(user);
+}
+
+// Requires the current password (a stolen session alone can't change it,
+// and wrong guesses count toward lockout). Signs out every other device:
+// if the reason for changing is a suspected compromise, the attacker's
+// session must not survive it (ASVS 2.1.5 / 3.3.3).
+async function changePassword(userId, currentPassword, newPassword) {
+  await verifyPinStepUp(userId, currentPassword);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  staffSecurity.validateNewPassword(user, newPassword);
+  if (await password.compare(newPassword, user.passwordHash)) {
+    throw new AppError('Choose a different password from your current one', 422);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash: await password.hash(newPassword),
+        mustChangePassword: false,
+        passwordChangedAt: new Date(),
+        tokenVersion: { increment: 1 },
+      },
+    });
+    await recordAuditLog(
+      { actorUserId: userId, action: 'PASSWORD_CHANGED', entityType: 'User', entityId: userId },
+      tx
+    );
+  });
+}
+
 module.exports = {
   registerBetter,
   registerBoardman,
   login,
+  verifyPinStepUp,
+  changePassword,
   assertNotLocked,
   recordFailedAttempt,
   clearFailedAttempts,

@@ -10,6 +10,7 @@ const {
   loginSchema,
   mfaVerifySchema,
   mfaCodeSchema,
+  changePasswordSchema,
 } = require('../validators/schemas');
 
 router.post('/register/better', authLimiter, validate(registerBetterSchema), authController.registerBetter);
@@ -18,6 +19,7 @@ router.post('/login', authLimiter, validate(loginSchema), authController.login);
 router.post('/mfa/verify', authLimiter, validate(mfaVerifySchema), authController.mfaVerify);
 router.post('/refresh', authLimiter, authController.refresh);
 router.post('/logout', authController.logout);
+router.post('/password', authLimiter, requireAuth, validate(changePasswordSchema), authController.changePassword);
 
 // MFA enrollment/management (TASK-031) — only for already-authenticated
 // ADMIN accounts, since staff are the only accounts this covers.

@@ -20,6 +20,11 @@ x-app-env: &app-env
   JWT_ACCESS_SECRET: ${COMPOSE_JWT_ACCESS_SECRET:-local-compose-access-secret-change-me-0001}
   JWT_REFRESH_SECRET: ${COMPOSE_JWT_REFRESH_SECRET:-local-compose-refresh-secret-change-me-0002}
   JWT_MFA_CHALLENGE_SECRET: ${COMPOSE_JWT_MFA_SECRET:-local-compose-mfa-challenge-secret-change-me-03}
+  # Production enforces the staff security gate (MFA + 12-char password)
+  # immediately. This local stack defaults it to far in the future so the
+  # seeded demo admin and the load tests keep working; set
+  # COMPOSE_STAFF_SECURITY_ENFORCED_FROM=2000-01-01 to try the gate locally.
+  STAFF_SECURITY_ENFORCED_FROM: ${COMPOSE_STAFF_SECURITY_ENFORCED_FROM:-2100-01-01}
   # Optional — error tracking stays off unless set (TASK-042).
   SENTRY_DSN: ${SENTRY_DSN:-}
   SENTRY_ENVIRONMENT: local-compose

@@ -38,6 +38,20 @@ function requiredJwtSecret(name, devDefault) {
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// When the staff security gate (MFA + 12-char password) starts blocking
+// admin actions. A future date is a grace period: staff see a warning
+// banner until then. Production defaults to enforced now; elsewhere it's
+// off unless set, so local development and tests aren't gated.
+function parseStaffSecurityEnforcedFrom() {
+  const raw = process.env.STAFF_SECURITY_ENFORCED_FROM;
+  if (!raw) return NODE_ENV === 'production' ? new Date(0) : null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`STAFF_SECURITY_ENFORCED_FROM must be a date (e.g. 2026-11-01), got "${raw}"`);
+  }
+  return date;
+}
+
 const ALLOWED_SAME_SITE = ['lax', 'strict', 'none'];
 const cookieSameSite = (process.env.COOKIE_SAME_SITE || 'lax').toLowerCase();
 if (!ALLOWED_SAME_SITE.includes(cookieSameSite)) {
@@ -68,6 +82,8 @@ module.exports = {
   // connection — when unset, so this is opt-in and never breaks an
   // environment that hasn't provisioned the restricted role yet.
   appDatabaseUrl: process.env.APP_DATABASE_URL || required('DATABASE_URL'),
+
+  staffSecurityEnforcedFrom: parseStaffSecurityEnforcedFrom(),
 
   // Number of reverse-proxy hops (load balancer, CDN, etc.) Express should
   // trust the X-Forwarded-For chain through when determining req.ip. This

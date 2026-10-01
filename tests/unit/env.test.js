@@ -55,6 +55,50 @@ describe('config/env — JWT secret fail-fast in production (TASK-008)', () => {
   });
 });
 
+describe('config/env — staff security enforcement date', () => {
+  const ORIGINAL_ENV = process.env;
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  const loadEnv = () => require('../../server/config/env');
+  const prodSecrets = () => {
+    process.env.JWT_ACCESS_SECRET = 'a'.repeat(40);
+    process.env.JWT_REFRESH_SECRET = 'b'.repeat(40);
+    process.env.JWT_MFA_CHALLENGE_SECRET = 'c'.repeat(40);
+  };
+
+  it('is enforced immediately in production when unset', () => {
+    process.env.NODE_ENV = 'production';
+    prodSecrets();
+    delete process.env.STAFF_SECURITY_ENFORCED_FROM;
+    expect(loadEnv().staffSecurityEnforcedFrom.getTime()).toBe(0);
+  });
+
+  it('is off outside production when unset', () => {
+    process.env.NODE_ENV = 'development';
+    delete process.env.STAFF_SECURITY_ENFORCED_FROM;
+    expect(loadEnv().staffSecurityEnforcedFrom).toBeNull();
+  });
+
+  it('accepts a grace-period date and rejects nonsense', () => {
+    process.env.NODE_ENV = 'production';
+    prodSecrets();
+    process.env.STAFF_SECURITY_ENFORCED_FROM = '2026-11-01';
+    expect(loadEnv().staffSecurityEnforcedFrom.toISOString()).toBe('2026-11-01T00:00:00.000Z');
+
+    jest.resetModules();
+    process.env.STAFF_SECURITY_ENFORCED_FROM = 'next month';
+    expect(loadEnv).toThrow(/STAFF_SECURITY_ENFORCED_FROM/);
+  });
+});
+
 // TASK-032: session cookies must never end up SameSite=None without also
 // being Secure — browsers silently drop that combination, which looks
 // like a working login followed by every request being unauthenticated.

@@ -58,9 +58,46 @@ describe('Withdrawal gated by KYC tier (TASK-027)', () => {
     const { agent } = await setupFundedBetter(5000);
     const res = await agent.post('/api/withdrawals').send({
       amount: 1000,
+      pin: '1234',
       destination: { bankName: 'Test', accountNumber: '0000000000', accountName: 'Gate Better' },
     });
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/BVN|NIN/i);
+  });
+});
+
+describe('Withdrawals re-confirm the PIN (TASK-036 O3)', () => {
+  const destination = { bankName: 'Test', accountNumber: '0000000000', accountName: 'Gate Better' };
+
+  async function verifiedBetter() {
+    const { agent, userId } = await setupFundedBetter(5000);
+    await prisma.user.update({ where: { id: userId }, data: { kycTier: 'TIER_1' } });
+    return { agent, userId };
+  }
+
+  it('refuses a withdrawal with no PIN, even from a logged-in session', async () => {
+    const { agent } = await verifiedBetter();
+    const res = await agent.post('/api/withdrawals').send({ amount: 1000, destination });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/PIN/);
+  });
+
+  it('refuses a wrong PIN, moves no money, and counts it toward the lockout', async () => {
+    const { agent, userId } = await verifiedBetter();
+    const res = await agent.post('/api/withdrawals').send({ amount: 1000, pin: '9999', destination });
+    expect(res.status).toBe(401);
+
+    const wallet = await prisma.wallet.findUnique({ where: { userId } });
+    expect(Number(wallet.balance)).toBe(5000);
+    expect((await prisma.user.findUnique({ where: { id: userId } })).failedLoginCount).toBe(1);
+  });
+
+  it('accepts the correct PIN', async () => {
+    const { agent, userId } = await verifiedBetter();
+    const res = await agent.post('/api/withdrawals').send({ amount: 1000, pin: '1234', destination });
+    expect(res.status).toBe(201);
+
+    const wallet = await prisma.wallet.findUnique({ where: { userId } });
+    expect(Number(wallet.balance)).toBe(4000);
   });
 });

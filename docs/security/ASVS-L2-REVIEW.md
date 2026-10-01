@@ -10,11 +10,12 @@ This is an internal review done by reading the code and exercising it with tests
 |---|---|
 | Issues found and **fixed** in this review | 10 |
 | Money bugs found by the property tests just before this review (TASK-045), fixed | 2 |
-| **Open** items needing a decision or later work | 10 |
+| Open items since resolved (O1–O3, the P1s) | 3 |
+| **Open** items needing a decision or later work | 7 |
 
 The most serious finding was **F0**: admin list screens sent other accounts' PIN hashes and MFA secrets to any staff member. Next came **logins and sessions**. A 4-digit PIN had no per-account guessing limit. Logging out didn't actually end a session, and a session could be refreshed forever without logging in again. All three are fixed.
 
-Most remaining open items are **decisions**, not bugs: PIN length, making MFA mandatory for staff, and step-up confirmation for withdrawals. There is also **scaling work** needed before running more than one API instance (shared rate-limit store, TASK-033 secrets).
+The three P1 items have since been fixed: mandatory staff MFA, 12-character staff passwords, and PIN confirmation for withdrawals. What remains is a product decision (bettor PIN length) and **scaling work** needed before running more than one API instance (shared rate-limit store, TASK-033 secrets).
 
 ## Fixed in this review
 
@@ -41,9 +42,9 @@ Priority: **P1** before real money goes live · **P2** before scaling or public 
 
 | # | Pri | ASVS | Item | Recommendation |
 |---|---|---|---|---|
-| O1 | **P1** | 4.3.1 / 2.8 | **MFA is optional for staff.** Admins who never enrol keep single-factor logins, and the dashboard only shows a banner. | Block admin routes (except `/admin/security`) until MFA is enabled, once every current admin has enrolled. The UI and enforcement hooks already exist. |
-| O2 | **P1** | 2.1.1 | **Staff credentials can be 4 characters.** The PIN minimum applies to admins too, and the seed admin uses `Admin@12345`. | Require ≥ 12 characters for `ADMIN` accounts. Mandatory MFA (O1) reduces but doesn't remove the risk. |
-| O3 | **P1** | 3.7.1 | **No step-up confirmation for withdrawals or bank-account changes.** A hijacked session can withdraw immediately. | Ask for the PIN (or an OTP, which already exists) again before a withdrawal or bank-detail change. |
+| O1 | ~~P1~~ **Resolved** | 4.3.1 / 2.8 | MFA was optional for staff. | Every admin route now requires MFA once `STAFF_SECURITY_ENFORCED_FROM` has passed (default in production: immediately; a future date gives a grace period with a warning banner). Gated admins are redirected to `/admin/security`, which stays reachable. Tests: `staffSecurity`. |
+| O2 | ~~P1~~ **Resolved** | 2.1.1 / 2.1.5 | Staff credentials could be 4 characters, and there was no way to change a password. | `POST /api/auth/password`: needs the current password (lockout-counted), staff minimum 12 characters, must not contain the phone number, signs out other devices, audited. A short staff password is detected at login and gates admin routes like O1. The seeded `Admin@12345` (11 characters) must therefore be changed at first production login. Tests: `staffSecurity`. |
+| O3 | ~~P1~~ **Resolved** | 3.7.1 | A hijacked session could withdraw immediately. | Withdrawals require the PIN again, and wrong PINs count toward the lockout. The bank details are part of the same request, so this also covers changing where money goes. Tests: `withdrawalKycGate`. |
 | O4 | P2 | 2.1.1 | **Bettor PINs are 4 digits.** L2 asks for 12+ character passwords. This is a product decision: mobile-money-style PINs suit the users. | Documented deviation, mitigated by F1 lockout, device fingerprinting (TASK-029) and KYC. Consider 6-digit PINs (100× harder to brute-force) before real money. |
 | O5 | P2 | 2.2.1 / 11.1.4 | **Rate limits live in each process's memory.** They reset on every deploy and multiply with every API replica. (The per-account lockout in F1 is database-backed, so it isn't affected.) | Move `express-rate-limit` to a shared store (Redis, or Postgres) before running more than one API instance. |
 | O6 | P2 | 6.4.1 / 14.1 | **Secrets are plain environment variables.** | TASK-033: AWS Secrets Manager (decision recorded: AWS af-south-1). |

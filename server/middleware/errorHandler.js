@@ -16,7 +16,7 @@ function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-va
     errorTracking.captureException(err, { method: req.method, url: req.originalUrl });
     return res.status(statusCode).json({ error: 'Something went wrong', requestId: req.id });
   }
-  res.status(statusCode).json({ error: err.message });
+  res.status(statusCode).json(err.code ? { error: err.message, code: err.code } : { error: err.message });
 }
 
 function notFound(req, res) {

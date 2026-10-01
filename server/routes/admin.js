@@ -7,11 +7,14 @@ const adminController = require('../controllers/adminController');
 const withdrawalController = require('../controllers/withdrawalController');
 const { resolveDisputeSchema, updateSettingsSchema, setStaffRoleSchema } = require('../validators/schemas');
 const { PERMISSIONS } = require('../config/staffPermissions');
+const { requireStaffSecurity } = require('../services/staffSecurityService');
 
 // requireRole('ADMIN') below only gates "can this account reach admin
 // routes at all" — requirePermission(...) on each route below is what
-// actually authorises the specific action (TASK-030).
-router.use(requireAuth, requireRole('ADMIN'));
+// actually authorises the specific action (TASK-030). requireStaffSecurity
+// blocks every admin route until the account has MFA and a 12+ character
+// password, once STAFF_SECURITY_ENFORCED_FROM has passed.
+router.use(requireAuth, requireRole('ADMIN'), requireStaffSecurity);
 
 router.get('/overview', requirePermission(PERMISSIONS.VIEW_ONLY), adminController.getOverview);
 

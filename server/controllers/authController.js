@@ -2,6 +2,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const authService = require('../services/authService');
 const deviceService = require('../services/deviceService');
 const mfaService = require('../services/mfaService');
+const staffSecurityService = require('../services/staffSecurityService');
 const {
   signAccessToken,
   signRefreshToken,
@@ -49,6 +50,7 @@ function toPublicUser(user) {
     kycTier: user.kycTier,
     // Status only — the TOTP secret itself never leaves the server.
     mfaEnabled: Boolean(user.mfaEnabledAt),
+    staffSecurity: staffSecurityService.statusFor(user),
   };
 }
 
@@ -145,6 +147,15 @@ const mfaDisable = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
+// Every other device is signed out (tokenVersion bump); this one gets
+// fresh cookies and stays in.
+const changePassword = asyncHandler(async (req, res) => {
+  await authService.changePassword(req.user.id, req.body.currentPassword, req.body.newPassword);
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  issueSession(res, user);
+  res.json({ user: toPublicUser(user) });
+});
+
 function userIdFromSessionCookies(req) {
   const attempts = [
     [req.cookies?.[COOKIE_NAMES.REFRESH], verifyRefreshToken],
@@ -218,6 +229,7 @@ module.exports = {
   mfaSetupStart,
   mfaSetupConfirm,
   mfaDisable,
+  changePassword,
   logout,
   refresh,
   toPublicUser,

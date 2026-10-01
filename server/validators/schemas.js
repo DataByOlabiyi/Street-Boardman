@@ -29,6 +29,13 @@ const registerBoardmanSchema = z.object({
 
 const loginSchema = z.object({ phone, pin });
 
+// Role-specific rules (12+ for staff) are applied in staffSecurityService;
+// this only bounds the input.
+const changePasswordSchema = z.object({
+  currentPassword: z.string({ required_error: 'Enter your current password' }).min(1, 'Enter your current password'),
+  newPassword: z.string({ required_error: 'Enter a new password' }).min(4, 'Too short').max(128),
+});
+
 const updateMeSchema = z.object({
   fullName: z.string().trim().min(2, 'Full name is required').max(100).optional(),
   email: z.string().trim().email('Enter a valid email').max(254).optional(),
@@ -69,6 +76,9 @@ const paystackInitializeSchema = z.object({ amount: z.number().positive() });
 
 const withdrawalSchema = z.object({
   amount: z.number().positive(),
+  pin: z
+    .string({ required_error: 'Enter your PIN to confirm this withdrawal' })
+    .min(1, 'Enter your PIN to confirm this withdrawal'),
   destination: z.object({
     bankName: z.string().min(2),
     accountNumber: z.string().min(6),
@@ -115,6 +125,7 @@ module.exports = {
   registerBoardmanSchema,
   loginSchema,
   updateMeSchema,
+  changePasswordSchema,
   mfaVerifySchema,
   mfaCodeSchema,
   otpRequestSchema,

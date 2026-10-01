@@ -153,6 +153,12 @@ model User {
   // change) invalidates every token already issued for this account —
   // stateless JWTs otherwise stay valid until they expire (ASVS 3.3.1).
   tokenVersion     Int       @default(0)
+  // Staff passwords must be 12+ characters (ASVS 2.1.1). Only the hash is
+  // stored, so length can only be checked when the plaintext is in hand —
+  // at login. A short staff password sets this, and the admin gate blocks
+  // admin actions until it's changed.
+  mustChangePassword Boolean   @default(false)
+  passwordChangedAt  DateTime?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
