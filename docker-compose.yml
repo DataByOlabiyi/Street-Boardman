@@ -87,5 +87,25 @@ services:
       api:
         condition: service_healthy
 
+  # Load tests (TASK-048) — only runs when asked for, see docs/LOAD_TESTING.md:
+  #   docker compose run --rm k6 run /scripts/hot-competition.js
+  # Talks to the API directly (not through nginx) so each simulated user
+  # can present its own client IP via X-Forwarded-For; TRUST_PROXY_HOPS=1
+  # above makes the API honour it, keeping per-IP limits per user.
+  k6:
+    image: grafana/k6:latest
+    profiles: ["loadtest"]
+    volumes:
+      - ./loadtest:/scripts
+    environment:
+      BASE_URL: http://api:4000
+      ADMIN_PHONE: "08000000000"
+      ADMIN_PIN: ${COMPOSE_SEED_ADMIN_PASSWORD:-Admin@12345}
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_started
+
 volumes:
   pgdata:
