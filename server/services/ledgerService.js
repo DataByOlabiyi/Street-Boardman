@@ -15,20 +15,35 @@ const crypto = require('crypto');
 // Returns (creating if necessary) the LedgerAccount backing a given
 // Wallet. USER_WALLET for Better/Boardman wallets, PLATFORM for the
 // singleton platform wallet.
+//
+// Both get-or-create helpers insert with ON CONFLICT DO NOTHING, then
+// read. They used to be find-then-create: the first concurrent bets on a
+// new competition raced to create the same escrow account, and the
+// loser's whole bet failed on the unique constraint. (Wallet accounts
+// were shielded by the wallet row lock taken first, but get the same
+// treatment rather than relying on every caller doing that.) Retrying isn't an option — these run inside interactive
+// transactions, which Postgres aborts on the first failed statement — and
+// Prisma's upsert with an empty update isn't run as a native ON CONFLICT.
+// A concurrent inserter waits on the first one's uncommitted row, then
+// does nothing; the follow-up read sees the committed row.
 async function getOrCreateAccountForWallet(tx, wallet) {
-  const existing = await tx.ledgerAccount.findUnique({ where: { walletId: wallet.id } });
-  if (existing) return existing;
   const type = wallet.walletType === 'PLATFORM' ? 'PLATFORM' : 'USER_WALLET';
-  return tx.ledgerAccount.create({ data: { type, walletId: wallet.id } });
+  await tx.$executeRaw`
+    INSERT INTO "LedgerAccount" ("id", "type", "walletId")
+    VALUES (${crypto.randomUUID()}, ${type}::"LedgerAccountType", ${wallet.id})
+    ON CONFLICT ("walletId") DO NOTHING`;
+  return tx.ledgerAccount.findUnique({ where: { walletId: wallet.id } });
 }
 
 // Returns (creating if necessary) the escrow LedgerAccount for a
 // competition. TASK-019 is what actually routes stakes/payouts through
 // it — this just guarantees the account exists on demand.
 async function getOrCreateEscrowAccountForCompetition(tx, competitionId) {
-  const existing = await tx.ledgerAccount.findUnique({ where: { competitionId } });
-  if (existing) return existing;
-  return tx.ledgerAccount.create({ data: { type: 'ESCROW', competitionId } });
+  await tx.$executeRaw`
+    INSERT INTO "LedgerAccount" ("id", "type", "competitionId")
+    VALUES (${crypto.randomUUID()}, 'ESCROW'::"LedgerAccountType", ${competitionId})
+    ON CONFLICT ("competitionId") DO NOTHING`;
+  return tx.ledgerAccount.findUnique({ where: { competitionId } });
 }
 
 // The singleton counterparty for money entering or leaving the system

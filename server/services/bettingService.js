@@ -76,73 +76,61 @@ async function placeBet({ betterId, betOptionId, stake }) {
     throw new AppError('Betting deadline has passed', 400);
   }
 
-  // Retry once on the rare chance two bets compute the same sequential
-  // code at the same instant — the DB's unique constraint is the real
-  // guard, this just avoids surfacing that as a user-facing error.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const betCode = await generateBetCode(prisma);
-    try {
-      return await prisma.$transaction(async (tx) => {
-        const wallet = await walletService.getWalletByUserId(tx, betterId);
+  return prisma.$transaction(async (tx) => {
+    const betCode = await generateBetCode(tx);
+    const wallet = await walletService.getWalletByUserId(tx, betterId);
 
-        const bet = await tx.bet.create({
-          data: {
-            betCode,
-            betterId,
-            competitionId: competition.id,
-            betOptionId,
-            stake: stakeDecimal,
-            potentialPayout: stakeDecimal, // placeholder estimate, refined below
-            status: 'OPEN',
-          },
-        });
+    const bet = await tx.bet.create({
+      data: {
+        betCode,
+        betterId,
+        competitionId: competition.id,
+        betOptionId,
+        stake: stakeDecimal,
+        potentialPayout: stakeDecimal, // placeholder estimate, refined below
+        status: 'OPEN',
+      },
+    });
 
-        await walletService.applyWalletTransaction(tx, {
-          walletId: wallet.id,
-          type: 'BET_STAKE',
-          delta: stakeDecimal.negated(),
-          referenceType: 'Bet',
-          referenceId: bet.id,
-          note: `Stake on "${betOption.label}" — ${competition.title}`,
-          counterparty: { type: 'ESCROW', competitionId: competition.id },
-        });
+    await walletService.applyWalletTransaction(tx, {
+      walletId: wallet.id,
+      type: 'BET_STAKE',
+      delta: stakeDecimal.negated(),
+      referenceType: 'Bet',
+      referenceId: bet.id,
+      note: `Stake on "${betOption.label}" — ${competition.title}`,
+      counterparty: { type: 'ESCROW', competitionId: competition.id },
+    });
 
-        await flagIfSelfBettingSuspected(tx, {
-          betId: bet.id,
-          betterId,
-          boardmanProfile: competition.boardmanProfile,
-        });
+    await flagIfSelfBettingSuspected(tx, {
+      betId: bet.id,
+      betterId,
+      boardmanProfile: competition.boardmanProfile,
+    });
 
-        const updatedOption = await tx.betOption.update({
-          where: { id: betOptionId },
-          data: { totalStaked: { increment: stakeDecimal } },
-        });
+    const updatedOption = await tx.betOption.update({
+      where: { id: betOptionId },
+      data: { totalStaked: { increment: stakeDecimal } },
+    });
 
-        // Rough live estimate only: (this bet's share of the option so far)
-        // times the current whole-competition pool, minus commission. The
-        // real payout is only known once betting closes and all stakes are
-        // in — this is clearly labelled as an estimate to the Better.
-        const allOptions = await tx.betOption.findMany({ where: { competitionId: competition.id } });
-        const wholePool = allOptions.reduce((sum, o) => sum.plus(toDecimal(o.totalStaked)), toDecimal(0));
-        const afterCommission = wholePool
-          .times(1 - competition.boardmanCommissionRate - competition.platformCommissionRate);
-        const estimatedPayout = round2(
-          afterCommission.times(stakeDecimal.dividedBy(toDecimal(updatedOption.totalStaked)))
-        );
+    // Rough live estimate only: (this bet's share of the option so far)
+    // times the current whole-competition pool, minus commission. The
+    // real payout is only known once betting closes and all stakes are
+    // in — this is clearly labelled as an estimate to the Better.
+    const allOptions = await tx.betOption.findMany({ where: { competitionId: competition.id } });
+    const wholePool = allOptions.reduce((sum, o) => sum.plus(toDecimal(o.totalStaked)), toDecimal(0));
+    const afterCommission = wholePool
+      .times(1 - competition.boardmanCommissionRate - competition.platformCommissionRate);
+    const estimatedPayout = round2(
+      afterCommission.times(stakeDecimal.dividedBy(toDecimal(updatedOption.totalStaked)))
+    );
 
-        return tx.bet.update({
-          where: { id: bet.id },
-          data: { potentialPayout: estimatedPayout },
-          include: { betOption: true },
-        });
-      });
-    } catch (err) {
-      const isBetCodeCollision = err.code === 'P2002' && err.meta?.target?.includes('betCode');
-      if (isBetCodeCollision && attempt < 2) continue;
-      throw err;
-    }
-  }
-  throw new AppError('Could not place bet, please try again', 500);
+    return tx.bet.update({
+      where: { id: bet.id },
+      data: { potentialPayout: estimatedPayout },
+      include: { betOption: true },
+    });
+  });
 }
 
 async function listBetsForBetter(betterId) {
