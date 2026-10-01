@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
+const walletService = require('../server/services/walletService');
 
 const prisma = new PrismaClient();
 
@@ -97,22 +98,24 @@ async function main() {
     walletType: 'BETTER',
   });
 
-  // Give the demo Better some starting demo funds so they can bet right away.
+  // Give the demo Better some starting demo funds so they can bet right
+  // away. Goes through applyWalletTransaction like every other money
+  // movement, so the double-entry ledger records it too. Writing the
+  // balance directly (as this used to) left every seeded environment
+  // failing the nightly wallet-vs-ledger reconciliation from day one.
   const betterWallet = await prisma.wallet.findUnique({ where: { userId: better.id } });
   if (Number(betterWallet.balance) === 0) {
-    await prisma.wallet.update({ where: { id: betterWallet.id }, data: { balance: 20000 } });
-    await prisma.walletTransaction.create({
-      data: {
+    await prisma.$transaction((tx) =>
+      walletService.applyWalletTransaction(tx, {
         walletId: betterWallet.id,
         type: 'DEPOSIT',
-        amount: 20000,
-        balanceBefore: 0,
-        balanceAfter: 20000,
+        delta: 20000,
         referenceType: 'Seed',
         referenceId: 'seed-script',
         note: 'Starting demo balance',
-      },
-    });
+        counterparty: { type: 'EXTERNAL' },
+      })
+    );
   }
 
   const boardmanProfile = await prisma.boardmanProfile.findUnique({ where: { userId: boardmanUser.id } });
