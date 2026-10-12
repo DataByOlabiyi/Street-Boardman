@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const cron = require('node-cron');
 const withdrawalService = require('../services/withdrawalService');
+const notificationService = require('../services/notificationService');
 const { withAdvisoryLock } = require('../utils/advisoryLock');
 const logger = require('../utils/logger');
 const errorTracking = require('../utils/errorTracking');
@@ -8,6 +9,7 @@ const { runWithContext } = require('../utils/requestContext');
 
 const CONFIRM_LOCK_KEY = 727003;
 const FLOAT_LOCK_KEY = 727004;
+const NOTIFY_LOCK_KEY = 727005;
 // Both jobs call Paystack while holding their lock.
 const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -30,6 +32,8 @@ function scheduled(name, schedule, lockKey, fn) {
 function startPayoutSweep() {
   scheduled('confirmStuckTransfers', '*/10 * * * *', CONFIRM_LOCK_KEY, () => withdrawalService.confirmStuckTransfers());
   scheduled('payoutFloatCheck', '17 * * * *', FLOAT_LOCK_KEY, () => withdrawalService.checkPayoutFloat());
+  // FEAT-041: send queued notifications every minute.
+  scheduled('sendNotifications', '* * * * *', NOTIFY_LOCK_KEY, () => notificationService.sendPending());
 }
 
 module.exports = startPayoutSweep;

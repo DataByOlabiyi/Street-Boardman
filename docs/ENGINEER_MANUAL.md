@@ -158,6 +158,8 @@ by `/auth/login` and the two `/auth/register/*` routes).
 | GET | `/deposits/me` | any | Deposit history |
 | POST | `/withdrawals` | BETTER/BOARDMAN | Debits wallet immediately, `PENDING` |
 | GET | `/withdrawals/me` | any | Withdrawal history |
+| GET | `/notifications/me` | any | Your last 50 notifications + `unread` count |
+| PATCH | `/notifications/me/read-all` | any | Marks them read |
 
 ### Competitions / Bets
 | Method | Path | Auth | Notes |

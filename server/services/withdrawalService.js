@@ -5,6 +5,7 @@ const { toDecimal, round2 } = require('../utils/money');
 const { recordAuditLog } = require('../middleware/auditLog');
 const env = require('../config/env');
 const paystack = require('./paystackClient');
+const notificationService = require('./notificationService');
 const logger = require('../utils/logger');
 const errorTracking = require('../utils/errorTracking');
 
@@ -225,6 +226,13 @@ async function settleTransferSucceeded(withdrawalId, { transferCode, actorUserId
       data: { status: 'PROCESSED', processedAt: new Date(), ...(transferCode ? { transferCode } : {}) },
     });
     if (claim.count === 1) {
+      const paid = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+      await notificationService.enqueue(tx, {
+        userId: paid.userId,
+        type: 'WITHDRAWAL_PAID',
+        message: notificationService.messages.withdrawalPaid({ amount: paid.amount }),
+        dedupeKey: `WITHDRAWAL_PAID:${withdrawalId}`,
+      });
       await recordAuditLog(
         {
           actorUserId,
@@ -260,6 +268,12 @@ async function settleTransferFailed(withdrawalId, reason) {
         referenceId: withdrawalId,
         note: 'Withdrawal transfer failed — funds returned',
         counterparty: { type: 'EXTERNAL' },
+      });
+      await notificationService.enqueue(tx, {
+        userId: before.userId,
+        type: 'WITHDRAWAL_FAILED',
+        message: notificationService.messages.withdrawalFailed({ amount: before.amount }),
+        dedupeKey: `WITHDRAWAL_FAILED:${withdrawalId}`,
       });
       await recordAuditLog(
         {
@@ -381,6 +395,12 @@ async function rejectWithdrawal(withdrawalId, adminUserId, reasonNote) {
       // a rejected withdrawal never reached Paystack, so crediting it back
       // from the same counterparty keeps the ledger matching reality.
       counterparty: { type: 'EXTERNAL' },
+    });
+    await notificationService.enqueue(tx, {
+      userId: withdrawal.userId,
+      type: 'WITHDRAWAL_REJECTED',
+      message: notificationService.messages.withdrawalRejected({ amount: withdrawal.amount }),
+      dedupeKey: `WITHDRAWAL_REJECTED:${withdrawalId}`,
     });
     await recordAuditLog(
       {
