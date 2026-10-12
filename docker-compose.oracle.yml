@@ -35,6 +35,9 @@ x-app-env: &app-env
   JWT_MFA_CHALLENGE_SECRET: ${COMPOSE_JWT_MFA_SECRET:?set in .env}
   STAFF_SECURITY_ENFORCED_FROM: ${COMPOSE_STAFF_SECURITY_ENFORCED_FROM:-2000-01-01}
   SENTRY_ENVIRONMENT: oracle-demo
+  # Optional SMS (OTPs, notifications). Empty: DEMO logs messages instead.
+  TERMII_API_KEY: ${TERMII_API_KEY:-}
+  TERMII_SENDER_ID: ${TERMII_SENDER_ID:-StreetBMN}
 
 services:
   postgres:

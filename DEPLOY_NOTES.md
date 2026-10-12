@@ -15,7 +15,7 @@ No secrets are in this file or in git.
 | Code | `~/streetboardman`, branch `deploy/oracle-demo`, cloned over HTTPS (public repo, no deploy key) |
 | Secrets | `~/streetboardman/.env` (chmod 600, created by `ops/init-env.sh`) |
 | Demo logins | `~/DEMO_ACCOUNTS.txt` (chmod 600, outside the repo) |
-| Backups | `~/backups/streetboardman-YYYY-MM-DD.sql.gz`, daily at 02:00, 14 days kept |
+| Backups | `~/backups/streetboardman-YYYY-MM-DD.sql.gz` (database) and `streetboardman-YYYY-MM-DD.uploads.tar.gz` (evidence photos), daily at 02:00, 14 days kept |
 
 ```
 internet ──443──▶ Caddy (host, Let's Encrypt) ──▶ 127.0.0.1:8080 nginx (web) ──/api──▶ api ──▶ postgres
@@ -23,6 +23,7 @@ internet ──443──▶ Caddy (host, Let's Encrypt) ──▶ 127.0.0.1:8080
 ```
 
 - Caddy is the only public listener. nginx is published on 127.0.0.1 only, because Docker-published ports bypass iptables. Postgres and the API are not published at all.
+- Evidence photos uploaded with results live in the `uploads` Docker volume (`/app/uploads` in the api container), not in Postgres; `ops/backup.sh` backs up both.
 - `docker-compose.oracle.yml` layers the demo settings over `docker-compose.yml`. `.env` sets `COMPOSE_FILE`, so a plain `docker compose …` in `~/streetboardman` uses both files. The comments at the top of that file explain each change.
 
 ## What was installed on the VM
@@ -57,10 +58,14 @@ sudo systemctl reload caddy
 | Follow logs | `docker compose logs -f api` (or `worker`, `web`, `postgres`) |
 | Caddy logs | `sudo journalctl -u caddy -f` |
 | Back up now | `ops/backup.sh` |
-| Restore a backup | `ops/restore.sh ~/backups/streetboardman-YYYY-MM-DD.sql.gz`. It asks you to type `restore`, stops api and worker, and replaces all data. |
-| Copy backups off the VM | `scp -i [SSH_KEY_PATH] 'ubuntu@[VM_IP]:backups/*.sql.gz' ./` |
+| Restore a backup | `ops/restore.sh ~/backups/streetboardman-YYYY-MM-DD.sql.gz`. It asks you to type `restore`, stops api and worker, and replaces all data, including that day's evidence photos when the matching `.uploads.tar.gz` is there. |
+| Copy backups off the VM | `scp -i [SSH_KEY_PATH] 'ubuntu@[VM_IP]:backups/streetboardman-*' ./` |
 
 Container logs are capped at 3 × 10 MB per service. Everything except the one-off `migrate` job restarts by itself after a crash or a reboot.
+
+## SMS (optional)
+
+OTPs and notifications (won bets, refunds, withdrawals) go out by SMS through Termii once you add `TERMII_API_KEY` (and a Termii-approved `TERMII_SENDER_ID`) to `~/streetboardman/.env` and run `ops/deploy.sh`. Without a key the demo logs the messages instead of sending them.
 
 ## Accounts
 
