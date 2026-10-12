@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const notificationService = require('./notificationService');
 const AppError = require('../utils/appError');
 const walletService = require('./walletService');
 const commissionService = require('./commissionService');
@@ -72,6 +73,12 @@ async function payOneBet(bet, amount, competitionTitle, competitionId) {
       data: { status: 'PROCESSED', processedAt: new Date() },
     });
     await tx.bet.update({ where: { id: bet.id }, data: { status: 'WON' } });
+    await notificationService.enqueue(tx, {
+      userId: bet.betterId,
+      type: 'BET_WON',
+      message: notificationService.messages.betWon({ amount, competitionTitle }),
+      dedupeKey: `BET_WON:${bet.id}`,
+    });
     return processed;
   });
 }
@@ -179,11 +186,10 @@ async function processPayoutsForCompetition(competitionId) {
     competition.platformCommissionRate
   );
 
-  const payouts = commissionService.calculateWinnerPayouts(
-    winningBets,
-    winningOption.totalStaked,
-    commission.distributablePool
-  );
+  // The winning side's total straight from its bets: exact, and the same
+  // set of bets being paid.
+  const winningTotal = winningBets.reduce((sum, b) => sum.plus(toDecimal(b.stake)), toDecimal(0));
+  const payouts = commissionService.calculateWinnerPayouts(winningBets, winningTotal, commission.distributablePool);
 
   for (const { betId, amount } of payouts) {
     const bet = winningBets.find((b) => b.id === betId);
@@ -222,10 +228,21 @@ async function processPayoutsForCompetition(competitionId) {
 // first: Postgres row-locks it, so the second transaction waits, then
 // matches zero rows and skips. Each bet is also flipped OPEN -> REFUNDED
 // conditionally before any money moves, as a second guard.
-async function cancelAndRefundCompetition(competitionId) {
+//
+// `allowedFrom` narrows which statuses may be cancelled: a Boardman can
+// only cancel before a result exists (FEAT-039). It's part of the claim,
+// so a result submitted concurrently can't slip past the check.
+async function cancelAndRefundCompetition(competitionId, { allowedFrom } = {}) {
   return prisma.$transaction(async (tx) => {
+    // FOR UPDATE conflicts with the KEY SHARE lock every in-flight bet
+    // holds on this row (see bettingService.placeBet), so the refund below
+    // waits for those bets and includes them. A plain UPDATE wouldn't.
+    await tx.$queryRaw`SELECT id FROM "Competition" WHERE id = ${competitionId} FOR UPDATE`;
     const claim = await tx.competition.updateMany({
-      where: { id: competitionId, status: { notIn: ['COMPLETED', 'CANCELLED_REFUNDED'] } },
+      where: {
+        id: competitionId,
+        status: allowedFrom ? { in: allowedFrom } : { notIn: ['COMPLETED', 'CANCELLED_REFUNDED'] },
+      },
       data: { status: 'CANCELLED_REFUNDED' },
     });
     if (claim.count === 0) {
@@ -254,6 +271,12 @@ async function cancelAndRefundCompetition(competitionId) {
         referenceId: bet.id,
         note: `Refund — ${competition.title} cancelled`,
         counterparty: { type: 'ESCROW', competitionId },
+      });
+      await notificationService.enqueue(tx, {
+        userId: bet.betterId,
+        type: 'COMPETITION_CANCELLED',
+        message: notificationService.messages.competitionCancelled({ stake: bet.stake, competitionTitle: competition.title }),
+        dedupeKey: `COMPETITION_CANCELLED:${bet.id}`,
       });
     }
 

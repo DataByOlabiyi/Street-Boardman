@@ -1,4 +1,5 @@
 const asyncHandler = require('../utils/asyncHandler');
+const boardmanTrustService = require('../services/boardmanTrustService');
 const prisma = require('../config/db');
 const AppError = require('../utils/appError');
 
@@ -16,4 +17,8 @@ const getMyProfile = asyncHandler(async (req, res) => {
   res.json({ boardmanProfile: req.boardmanProfile });
 });
 
-module.exports = { requireBoardmanProfile, getMyProfile };
+const getPublicProfile = asyncHandler(async (req, res) => {
+  res.json({ boardman: await boardmanTrustService.getPublicProfile(req.params.id) });
+});
+
+module.exports = { requireBoardmanProfile, getMyProfile, getPublicProfile };

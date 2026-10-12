@@ -158,36 +158,53 @@ by `/auth/login` and the two `/auth/register/*` routes).
 | GET | `/deposits/me` | any | Deposit history |
 | POST | `/withdrawals` | BETTER/BOARDMAN | Debits wallet immediately, `PENDING` |
 | GET | `/withdrawals/me` | any | Withdrawal history |
+| GET | `/notifications/me` | any | Your last 50 notifications + `unread` count |
+| PATCH | `/notifications/me/read-all` | any | Marks them read |
 
 ### Competitions / Bets
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| GET | `/competitions` | none | Public list of `BETTING_OPEN` |
-| GET | `/competitions/:id` | none | Public detail |
+| GET | `/competitions` | none | Open competitions. `q` (title, description, participants), `category`, `location` (Boardman's), `closingWithinHours`, `boardmanProfileId`, `sort=deadline\|pool\|newest`, `page`, `pageSize` (≤100). Each has `pool` and a `boardman` card |
+| GET | `/competitions/:id` | none | Public detail, with `pool` and `boardman` |
+| GET | `/competitions/:id/pool` | none | Live pool only, cheap enough to poll: totals, share and estimated return per ₦100 per option, bet counts, no-contest notices |
+| GET | `/boardmen/:id/public` | none | Approved Boardman's track record and trust score (null until 5 settled competitions; formula in `boardmanTrustService.js`) |
 | POST | `/competitions` | BOARDMAN, approved | Creates with `BETTING_OPEN` status |
 | GET | `/competitions/mine/list` | BOARDMAN | Own competitions, any status |
 | PATCH | `/competitions/:id/close-betting` | BOARDMAN, owner | `BETTING_OPEN -> BETTING_CLOSED` |
+| PATCH | `/competitions/:id` | BOARDMAN, owner | `{ title?, description?, bettingDeadline? }` while `BETTING_OPEN`; title only before the first bet; options and rates never change |
+| POST | `/competitions/:id/cancel` | BOARDMAN, owner | `{ reason }`; refunds every stake, no commission; only before a result is submitted |
 | GET | `/competitions/:id/bets` | BOARDMAN, owner | Bets received |
-| POST | `/competitions/:id/result` | BOARDMAN, owner | `BETTING_CLOSED -> PENDING_CONFIRMATION` |
+| POST | `/competitions/:id/result` | BOARDMAN, owner | `BETTING_CLOSED -> PENDING_CONFIRMATION`. Evidence: `evidenceUrls` (https links) and/or `evidenceUploadIds` (own, unused uploads), 10 max |
+| POST | `/uploads/evidence` | BOARDMAN | Body is the photo itself, `Content-Type: image/jpeg` or `image/png`, ≤ 5 MB, 30/hour. Type checked from the bytes; EXIF/GPS and PNG text stripped. Returns `{ upload: { id, url } }` |
+| GET | `/uploads/evidence/:id` | none | The stored photo (random UUID URL) |
 | POST | `/competitions/:id/dispute` | any authenticated | `PENDING_CONFIRMATION -> DISPUTED` |
-| POST | `/bets` | BETTER | `{ betOptionId, stake }`, rate-limited |
+| POST | `/bets` | BETTER | `{ betOptionId, stake }`, rate-limited. Optional `Idempotency-Key` header (8–64 chars, one per bet slip): a retry returns the original bet with 200 and `Idempotent-Replayed: true` |
 | GET | `/bets/me` | BETTER | Own bet history |
 | GET | `/bets/:betCode` | BETTER, owner | One ticket |
 
 ### Admin (all require `role: ADMIN`)
+
+Every list below takes `page`, `pageSize` (default 100, max 500), `from`, `to` and `format=csv`. JSON keeps its original key (`users`, `bets`, …) and adds `page: { page, pageSize, total }`. CSV exports are capped at 10,000 rows, neutralise spreadsheet formulas, and are recorded as `DATA_EXPORTED` in the audit log.
+
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/admin/overview` | Platform-wide counts + revenue |
 | GET | `/admin/boardmen` / `/admin/boardmen/pending` | List |
 | PATCH | `/admin/boardmen/:id/approve` \| `/reject` \| `/suspend` | |
-| GET | `/admin/users` | |
+| GET | `/admin/users` | Filters: `role`, `status`, `kycTier`, `q` (name/phone) |
 | PATCH | `/admin/users/:id/suspend` \| `/reactivate` | |
-| GET | `/admin/competitions` / `/admin/bets` | Full visibility |
+| GET | `/admin/competitions` / `/admin/bets` | Filters: `status`, `category`, `boardmanProfileId`, `q` / `status`, `competitionId`, `betterId`, `q` (bet code) |
 | GET | `/admin/disputes` | |
 | PATCH | `/admin/disputes/:id/resolve` | `{ action: 'CONFIRM'|'CANCEL', winningOptionId? }` — runs the payout or refund engine |
-| PATCH | `/admin/withdrawals/:id/process` \| `/reject` | |
-| GET | `/admin/ledger` | Recent `WalletTransaction`s across all wallets |
-| GET | `/admin/audit-logs` | |
+| PATCH | `/admin/withdrawals/:id/process` \| `/reject` | Process starts a Paystack transfer in PRODUCTION (settled by webhook); DEMO settles at once |
+| GET | `/admin/withdrawals` | Filters: `status`, `userId` (MANAGE_WITHDRAWALS) |
+| GET | `/admin/payouts/float` | Paystack balance vs pending withdrawals (FINANCE / SUPER_ADMIN) |
+| GET | `/admin/ledger` | `WalletTransaction`s across all wallets. Filters: `type`, `walletId`, `userId` |
+| GET | `/admin/audit-logs` | Filters: `action`, `actorUserId`, `entityType`, `entityId` |
+| GET | `/admin/reports/summary` | `?from&to&groupBy=day` (default last 30 days, max 366): deposits, withdrawals, stakes, winnings, refunds, commission, adjustments, new users; days in Lagos time (VIEW_LEDGER) |
+| GET | `/admin/adjustments` | Manual corrections, filter `status` (VIEW_LEDGER) |
+| POST | `/admin/adjustments` | `{ userId, amount (signed), reason }` proposes a correction, max ₦1,000,000 (ADJUST_BALANCES) |
+| PATCH | `/admin/adjustments/:id/approve` \| `/reject` | A **different** staff member reviews; approval posts an `ADJUSTMENT` through the ledger and can't overdraw (ADJUST_BALANCES) |
 | GET | `/admin/settings` / PATCH `/admin/settings` | Commission rates, confirmation window |
 
 **Error format**: every error response is `{ "error": "human-readable message" }`
@@ -210,8 +227,10 @@ Result auto-confirmed or Admin-confirmed
         WalletTransaction(COMMISSION) -> Platform wallet
 Withdrawal requested
    -> WalletTransaction(WITHDRAWAL)      [wallet -= amount immediately, held as PENDING]
-Withdrawal rejected
+Withdrawal rejected (before any transfer)
    -> WalletTransaction(ADJUSTMENT)      [funds returned, with a reason note]
+Withdrawal transfer failed or reversed (Paystack webhook / worker sweep)
+   -> WalletTransaction(ADJUSTMENT)      [funds returned once, status FAILED]
 ```
 
 **Core invariant**: `wallet.balance` is only ever changed inside
@@ -313,6 +332,14 @@ See `.env.example` for the full annotated list. Highlights:
 - **Handling failed withdrawals**: use
   `withdrawalService.rejectWithdrawal` (not a direct DB edit) — it returns
   the held funds via a proper `ADJUSTMENT` transaction with an audit trail.
+  It only works on `PENDING` withdrawals. A `PROCESSING` one has a transfer
+  in flight at Paystack: never edit it by hand. The webhook or the worker's
+  10-minute sweep settles it (refunding automatically if it failed).
+- **Payout setup (PRODUCTION)**: in the Paystack dashboard, disable OTP for
+  transfers (otherwise transfers wait forever and an alert fires) and point
+  the webhook at `/api/deposits/paystack/webhook`, which handles both
+  deposits and `transfer.*` events. The hourly float check alerts when the
+  balance can't cover pending withdrawals plus `PAYOUT_FLOAT_ALERT_NGN`.
 - **Resolving disputes**: Admin -> Disputes screen, or directly via
   `resultService.resolveDispute` if scripting an emergency fix.
 - **Recovering from system errors**: because every money movement is a

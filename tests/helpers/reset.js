@@ -24,6 +24,8 @@ async function resetDatabase() {
     verifiedDatabase = name;
   }
   await prisma.otpCode.deleteMany();
+  await prisma.notification.deleteMany();
+  await prisma.upload.deleteMany();
   await prisma.kycVerification.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.dispute.deleteMany();
@@ -31,6 +33,7 @@ async function resetDatabase() {
   await prisma.commission.deleteMany();
   await prisma.result.deleteMany();
   await prisma.bet.deleteMany();
+  await prisma.betOptionShard.deleteMany();
   await prisma.betOption.deleteMany();
   await prisma.competitionParticipant.deleteMany();
   // Ledger entries/accounts (TASK-016/017) reference Wallet and Competition,
@@ -46,6 +49,7 @@ async function resetDatabase() {
   await prisma.withdrawal.deleteMany();
   await prisma.deposit.deleteMany();
   await prisma.walletTransaction.deleteMany();
+  await prisma.walletAdjustment.deleteMany();
   await prisma.wallet.deleteMany();
   await prisma.user.deleteMany();
   await prisma.systemSetting.deleteMany();

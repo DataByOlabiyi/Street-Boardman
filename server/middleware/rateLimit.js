@@ -65,4 +65,11 @@ const mfaManageLimiter = perUserLimiter({
   message: 'Too many attempts, please try again later.',
 });
 
-module.exports = { authLimiter, bettingLimiter, apiLimiter, kycLimiter, withdrawalLimiter, mfaManageLimiter };
+// Photo uploads are 5 MB each and stored indefinitely (FEAT-042).
+const uploadLimiter = perUserLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  message: 'Too many uploads. Try again in an hour.',
+});
+
+module.exports = { uploadLimiter, authLimiter, bettingLimiter, apiLimiter, kycLimiter, withdrawalLimiter, mfaManageLimiter };

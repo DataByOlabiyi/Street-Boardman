@@ -1,6 +1,9 @@
 const asyncHandler = require('../utils/asyncHandler');
 const prisma = require('../config/db');
 const competitionService = require('../services/competitionService');
+const { withOptionTotals } = require('../services/optionTotals');
+const AppError = require('../utils/appError');
+const { browseCompetitionsQuery } = require('../validators/schemas');
 
 const createCompetition = asyncHandler(async (req, res) => {
   const competition = await competitionService.createCompetition(req.boardmanProfile, req.body);
@@ -8,18 +11,43 @@ const createCompetition = asyncHandler(async (req, res) => {
 });
 
 const listOpenCompetitions = asyncHandler(async (req, res) => {
-  const competitions = await competitionService.listOpenCompetitions();
-  res.json({ competitions });
+  const parsed = browseCompetitionsQuery.safeParse(req.query);
+  if (!parsed.success) throw new AppError(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', '), 422);
+  res.json(await competitionService.listOpenCompetitions(parsed.data));
 });
 
 const getCompetition = asyncHandler(async (req, res) => {
-  const competition = await competitionService.getCompetitionById(req.params.id);
+  const competition = await competitionService.getPublicCompetition(req.params.id);
   res.json({ competition });
+});
+
+const getLivePool = asyncHandler(async (req, res) => {
+  res.json(await competitionService.getLivePool(req.params.id));
 });
 
 const closeBetting = asyncHandler(async (req, res) => {
   const competition = await competitionService.closeBetting(req.boardmanProfile.id, req.params.id);
   res.json({ competition });
+});
+
+const updateCompetition = asyncHandler(async (req, res) => {
+  const competition = await competitionService.updateCompetition(
+    req.boardmanProfile.id,
+    req.params.id,
+    req.body,
+    req.user.id
+  );
+  res.json({ competition });
+});
+
+const cancelCompetition = asyncHandler(async (req, res) => {
+  const result = await competitionService.cancelCompetition(
+    req.boardmanProfile.id,
+    req.params.id,
+    req.body.reason,
+    req.user.id
+  );
+  res.json(result);
 });
 
 const listMyCompetitions = asyncHandler(async (req, res) => {
@@ -28,6 +56,7 @@ const listMyCompetitions = asyncHandler(async (req, res) => {
     include: { betOptions: true, result: true },
     orderBy: { createdAt: 'desc' },
   });
+  await withOptionTotals(competitions);
   res.json({ competitions });
 });
 
@@ -48,7 +77,10 @@ module.exports = {
   createCompetition,
   listOpenCompetitions,
   getCompetition,
+  getLivePool,
   closeBetting,
+  updateCompetition,
+  cancelCompetition,
   listMyCompetitions,
   listBetsForMyCompetition,
 };

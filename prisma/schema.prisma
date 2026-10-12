@@ -92,10 +92,16 @@ enum DepositStatus {
   FAILED
 }
 
+// PENDING -> PROCESSING (transfer sent to Paystack, outcome not yet known)
+// -> PROCESSED (Paystack confirmed) or FAILED (failed/reversed; funds
+// returned to the wallet). REJECTED is an admin refusal before any
+// transfer was attempted (TASK-021).
 enum WithdrawalStatus {
   PENDING
   APPROVED
+  PROCESSING
   PROCESSED
+  FAILED
   REJECTED
 }
 
@@ -170,6 +176,10 @@ model User {
   auditLogs       AuditLog[]
   commissionsEarned Commission[]
   kycVerifications KycVerification[]
+  notifications        Notification[]
+  uploads              Upload[]
+  adjustmentsRequested WalletAdjustment[] @relation("AdjustmentRequestedBy")
+  adjustmentsReviewed  WalletAdjustment[] @relation("AdjustmentReviewedBy")
 
   @@index([role])
   @@index([deviceFingerprint])
@@ -204,6 +214,7 @@ model Wallet {
 
   transactions  WalletTransaction[]
   ledgerAccount LedgerAccount?
+  adjustments   WalletAdjustment[]
 }
 
 model WalletTransaction {
@@ -331,10 +342,23 @@ model BetOption {
   competition   Competition @relation(fields: [competitionId], references: [id])
   label         String
   participantId String?
-  totalStaked   Decimal     @default(0) @db.Decimal(14, 2)
 
   bets           Bet[]
   winningResults Result[]
+  stakeShards    BetOptionShard[]
+}
+
+// An option's running stake total, split across a few rows (TASK-048). One
+// row per option made every bet on a busy match queue on the same row
+// lock (p95 ~10 s at 400 bettors); each bet now adds to a random shard,
+// and readers sum the shards (see services/optionTotals.js).
+model BetOptionShard {
+  betOptionId String
+  betOption   BetOption @relation(fields: [betOptionId], references: [id])
+  shard       Int
+  totalStaked Decimal   @default(0) @db.Decimal(14, 2)
+
+  @@id([betOptionId, shard])
 }
 
 model Bet {
@@ -350,9 +374,14 @@ model Bet {
   potentialPayout  Decimal     @db.Decimal(14, 2)
   status           BetStatus   @default(OPEN)
   placedAt         DateTime    @default(now())
+  // Client-chosen Idempotency-Key: a retry after a lost response returns
+  // this bet instead of placing (and charging) a second one. Unique per
+  // bettor; bets placed without a key are unaffected (NULLs never clash).
+  idempotencyKey   String?
 
   payout Payout?
 
+  @@unique([betterId, idempotencyKey])
   @@index([betterId])
   @@index([competitionId])
   @@index([status])
@@ -421,6 +450,12 @@ model Withdrawal {
   status       WithdrawalStatus @default(PENDING)
   requestedAt  DateTime         @default(now())
   processedAt  DateTime?
+  // Our idempotency key at Paystack: the same reference can never create a
+  // second transfer, which is what makes retrying an unknown outcome safe.
+  transferReference   String?   @unique
+  transferCode        String?
+  transferInitiatedAt DateTime?
+  failureReason       String?
 
   @@index([userId])
   @@index([status])
@@ -529,4 +564,76 @@ model OtpCode {
   createdAt   DateTime   @default(now())
 
   @@index([phone, purpose])
+}
+
+// Manual balance corrections need two different staff members: one
+// proposes, another approves, and only approval moves money (FEAT-047).
+enum WalletAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model WalletAdjustment {
+  id            String                 @id @default(cuid())
+  walletId      String
+  wallet        Wallet                 @relation(fields: [walletId], references: [id])
+  amount        Decimal                @db.Decimal(14, 2) // signed: + credits, - debits
+  reason        String
+  status        WalletAdjustmentStatus @default(PENDING)
+  requestedById String
+  requestedBy   User                   @relation("AdjustmentRequestedBy", fields: [requestedById], references: [id])
+  reviewedById  String?
+  reviewedBy    User?                  @relation("AdjustmentReviewedBy", fields: [reviewedById], references: [id])
+  reviewNote    String?
+  createdAt     DateTime               @default(now())
+  reviewedAt    DateTime?
+
+  @@index([status])
+  @@index([walletId])
+}
+
+// Outbox for user notifications (FEAT-041). Rows are written in the same
+// transaction as the money movement they describe, so a crash can't lose
+// one and a payout retry can't duplicate one (dedupeKey). The worker
+// sends PENDING rows by SMS; the same rows are the user's in-app inbox.
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model Notification {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id])
+  type      String
+  message   String
+  status    NotificationStatus @default(PENDING)
+  attempts  Int                @default(0)
+  lastError String?
+  dedupeKey String             @unique
+  createdAt DateTime           @default(now())
+  sentAt    DateTime?
+  readAt    DateTime?
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+// Files users upload (FEAT-042: photos as result evidence). The bytes live
+// in storage (local disk for now, see services/storage); this row records
+// who uploaded what, and which result it was attached to, so a Boardman
+// can only attach their own, unused uploads.
+model Upload {
+  id                 String   @id
+  ownerUserId        String
+  owner              User     @relation(fields: [ownerUserId], references: [id])
+  purpose            String
+  contentType        String
+  sizeBytes          Int
+  attachedToResultId String?
+  createdAt          DateTime @default(now())
+
+  @@index([ownerUserId])
 }

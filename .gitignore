@@ -5,6 +5,7 @@ client/dist/
 .env.test
 *.log
 coverage/
+uploads/
 .DS_Store
 .prisma-engines/
 loadtest/results/*
@@ -14,3 +15,8 @@ loadtest/results/*
 .terraform/
 *.tfstate
 *.tfstate.*
+
+# Claude Code local instructions and skills (kept out of the repo)
+CLAUDE.md
+CLAUDE.local.md
+.claude/

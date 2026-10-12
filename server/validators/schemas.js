@@ -91,6 +91,8 @@ const withdrawalSchema = z.object({
     bankName: z.string().min(2),
     accountNumber: z.string().min(6),
     accountName: z.string().min(2),
+    // Paystack bank code (e.g. "058"); required in PRODUCTION (TASK-021).
+    bankCode: z.string().regex(/^\d{3,6}$/, 'Choose a valid bank').optional(),
   }),
 });
 
@@ -103,6 +105,44 @@ const createCompetitionSchema = z.object({
   options: z.array(z.string()).min(2, 'At least two betting options are required'),
 });
 
+// Only these fields are editable (FEAT-039); .strict() turns an attempt to
+// change options or commission rates into a clear 422.
+const updateCompetitionSchema = z
+  .object({
+    title: z.string().trim().min(3).max(120).optional(),
+    description: z.string().max(1000).optional(),
+    bettingDeadline: z.string().datetime().optional(),
+  })
+  .strict();
+
+const cancelCompetitionSchema = z.object({
+  reason: z.string().trim().min(5, 'Tell bettors why the competition is cancelled').max(500),
+});
+
+const adjustmentRequestSchema = z.object({
+  userId: z.string().min(1),
+  amount: z.number().refine((n) => n !== 0, 'Amount cannot be zero'),
+  reason: z.string().trim().min(10, 'Explain the adjustment (at least 10 characters)').max(500),
+});
+
+const adjustmentApproveSchema = z.object({ note: z.string().trim().max(500).optional() });
+
+const adjustmentRejectSchema = z.object({
+  note: z.string().trim().min(5, 'Say why the adjustment is rejected').max(500),
+});
+
+// Public browse query (FEAT-043); strings from the URL are coerced.
+const browseCompetitionsQuery = z.object({
+  q: z.string().trim().min(1).max(100).optional(),
+  category: z.enum(['FOOTBALL', 'SNOOKER', 'FIGHT', 'TABLE_GAME', 'OTHER']).optional(),
+  location: z.string().trim().min(2).max(100).optional(),
+  closingWithinHours: z.coerce.number().positive().max(24 * 30).optional(),
+  boardmanProfileId: z.string().min(1).max(64).optional(),
+  sort: z.enum(['deadline', 'pool', 'newest']).default('deadline'),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 const placeBetSchema = z.object({
   betOptionId: z.string().min(1),
   stake: z.number().positive(),
@@ -112,6 +152,8 @@ const submitResultSchema = z.object({
   winningOptionId: z.string().min(1),
   finalScore: z.string().optional(),
   evidenceUrls: z.array(httpsUrl).max(10).optional(),
+  // Photos uploaded through POST /api/uploads/evidence (FEAT-042).
+  evidenceUploadIds: z.array(z.string().uuid()).max(10).optional(),
   notes: z.string().optional(),
 });
 
@@ -144,6 +186,12 @@ module.exports = {
   paystackInitializeSchema,
   withdrawalSchema,
   createCompetitionSchema,
+  browseCompetitionsQuery,
+  adjustmentRequestSchema,
+  adjustmentApproveSchema,
+  adjustmentRejectSchema,
+  updateCompetitionSchema,
+  cancelCompetitionSchema,
   placeBetSchema,
   submitResultSchema,
   raiseDisputeSchema,

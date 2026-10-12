@@ -1,6 +1,7 @@
 const prisma = require('../config/db');
 const AppError = require('../utils/appError');
 const walletService = require('./walletService');
+const { addStake, totalsFor, withOptionTotals } = require('./optionTotals');
 const { generateBetCode } = require('../utils/idGenerator');
 const { toDecimal, round2 } = require('../utils/money');
 const { recordAuditLog } = require('../middleware/auditLog');
@@ -56,10 +57,18 @@ async function flagIfSelfBettingSuspected(tx, { betId, betterId, boardmanProfile
   );
 }
 
-async function placeBet({ betterId, betOptionId, stake }) {
+// With an idempotencyKey, a retried request (the response was lost, e.g.
+// the API restarted mid-request: seen in the FEAT-054 failure drill)
+// returns the bet that was already placed, marked `replayed`, instead of
+// placing and charging a second one.
+async function placeBet({ betterId, betOptionId, stake, idempotencyKey }) {
   const stakeDecimal = round2(toDecimal(stake));
   if (stakeDecimal.lte(0) || stakeDecimal.lt(MIN_STAKE)) {
     throw new AppError(`Minimum stake is ₦${MIN_STAKE}`, 422);
+  }
+  if (idempotencyKey) {
+    const earlier = await findByIdempotencyKey(betterId, idempotencyKey, { betOptionId, stakeDecimal });
+    if (earlier) return earlier;
   }
 
   const betOption = await prisma.betOption.findUnique({
@@ -79,13 +88,10 @@ async function placeBet({ betterId, betOptionId, stake }) {
   // Rough live estimate only: (this bet's share of its option) times the
   // whole pool, minus commission, as if this bet were already counted.
   // The real payout is only known once betting closes — the UI labels
-  // this as an estimate. Read without locks, BEFORE the transaction: on a
-  // busy match every bet increments one of the same few BetOption rows,
-  // and the load test (TASK-048) showed bets queueing on that row lock
-  // (Postgres sessions waiting on Lock:transactionid, p95 ~0.9-1.3 s at
-  // 200 bettors). Computing this inside the transaction after the
-  // increment held the lock through two more round trips.
+  // this as an estimate. Read without locks, before the transaction, so
+  // the transaction stays as short as possible (TASK-048).
   const options = await prisma.betOption.findMany({ where: { competitionId: competition.id } });
+  await withOptionTotals({ betOptions: options });
   const poolAfter = options.reduce((sum, o) => sum.plus(toDecimal(o.totalStaked)), stakeDecimal);
   const optionAfter = toDecimal(options.find((o) => o.id === betOptionId).totalStaked).plus(stakeDecimal);
   const estimatedPayout = round2(
@@ -94,6 +100,33 @@ async function placeBet({ betterId, betOptionId, stake }) {
       .times(stakeDecimal.dividedBy(optionAfter))
   );
 
+  try {
+    return await placeBetTransaction({ betterId, betOptionId, stakeDecimal, idempotencyKey, competition, betOption, estimatedPayout });
+  } catch (err) {
+    // Two requests with the same key raced: the unique constraint let one
+    // through and aborted this one. Return the winner's bet.
+    if (idempotencyKey && err.code === 'P2002') {
+      const earlier = await findByIdempotencyKey(betterId, idempotencyKey, { betOptionId, stakeDecimal });
+      if (earlier) return earlier;
+    }
+    throw err;
+  }
+}
+
+async function findByIdempotencyKey(betterId, idempotencyKey, { betOptionId, stakeDecimal }) {
+  const earlier = await prisma.bet.findUnique({
+    where: { betterId_idempotencyKey: { betterId, idempotencyKey } },
+    include: { betOption: true },
+  });
+  if (!earlier) return null;
+  if (earlier.betOptionId !== betOptionId || !toDecimal(earlier.stake).equals(stakeDecimal)) {
+    throw new AppError('This Idempotency-Key was already used for a different bet', 409);
+  }
+  await withOptionTotals({ betOptions: [earlier.betOption] });
+  return { ...earlier, replayed: true };
+}
+
+async function placeBetTransaction({ betterId, betOptionId, stakeDecimal, idempotencyKey, competition, betOption, estimatedPayout }) {
   return prisma.$transaction(async (tx) => {
     const betCode = await generateBetCode(tx);
     const wallet = await walletService.getWalletByUserId(tx, betterId);
@@ -107,8 +140,23 @@ async function placeBet({ betterId, betOptionId, stake }) {
         stake: stakeDecimal,
         potentialPayout: estimatedPayout,
         status: 'OPEN',
+        idempotencyKey: idempotencyKey || null,
       },
     });
+
+    // The checks above ran before this transaction, so a cancel could land
+    // in between and leave this bet in a cancelled competition's escrow,
+    // never refunded. Inserting the bet took a KEY SHARE lock on the
+    // competition row (its foreign key), held until commit; cancelling
+    // takes FOR UPDATE, which conflicts with it. So either this bet got in
+    // first and the cancel waits for it and refunds it, or the cancel
+    // committed first and this re-read sees it. No extra lock on the hot
+    // path: an explicit FOR SHARE here measurably slowed bets in the
+    // hot-competition load test (TASK-048).
+    const [current] = await tx.$queryRaw`SELECT status FROM "Competition" WHERE id = ${competition.id}`;
+    if (current.status !== 'BETTING_OPEN') {
+      throw new AppError('Betting is closed for this competition', 400);
+    }
 
     await walletService.applyWalletTransaction(tx, {
       walletId: wallet.id,
@@ -126,14 +174,14 @@ async function placeBet({ betterId, betOptionId, stake }) {
       boardmanProfile: competition.boardmanProfile,
     });
 
-    // Last statement before commit, so the hot row is locked for as
-    // little time as possible (see the estimate above).
-    const updatedOption = await tx.betOption.update({
-      where: { id: betOptionId },
-      data: { totalStaked: { increment: stakeDecimal } },
-    });
+    // Last statement before commit, so the shard row is locked for as
+    // little time as possible. Sharded: concurrent bets on the same option
+    // mostly land on different rows (TASK-048).
+    await addStake(tx, betOptionId, stakeDecimal);
+    const totals = await totalsFor([betOptionId], tx);
+    const { competition: _competition, ...option } = betOption;
 
-    return { ...bet, betOption: updatedOption };
+    return { ...bet, betOption: { ...option, totalStaked: totals.get(betOptionId) } };
   });
 }
 
