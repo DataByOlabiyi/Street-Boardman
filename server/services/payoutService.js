@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const notificationService = require('./notificationService');
 const AppError = require('../utils/appError');
 const walletService = require('./walletService');
 const commissionService = require('./commissionService');
@@ -72,6 +73,12 @@ async function payOneBet(bet, amount, competitionTitle, competitionId) {
       data: { status: 'PROCESSED', processedAt: new Date() },
     });
     await tx.bet.update({ where: { id: bet.id }, data: { status: 'WON' } });
+    await notificationService.enqueue(tx, {
+      userId: bet.betterId,
+      type: 'BET_WON',
+      message: notificationService.messages.betWon({ amount, competitionTitle }),
+      dedupeKey: `BET_WON:${bet.id}`,
+    });
     return processed;
   });
 }
@@ -264,6 +271,12 @@ async function cancelAndRefundCompetition(competitionId, { allowedFrom } = {}) {
         referenceId: bet.id,
         note: `Refund — ${competition.title} cancelled`,
         counterparty: { type: 'ESCROW', competitionId },
+      });
+      await notificationService.enqueue(tx, {
+        userId: bet.betterId,
+        type: 'COMPETITION_CANCELLED',
+        message: notificationService.messages.competitionCancelled({ stake: bet.stake, competitionTitle: competition.title }),
+        dedupeKey: `COMPETITION_CANCELLED:${bet.id}`,
       });
     }
 

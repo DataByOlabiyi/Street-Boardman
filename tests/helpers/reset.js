@@ -24,6 +24,7 @@ async function resetDatabase() {
     verifiedDatabase = name;
   }
   await prisma.otpCode.deleteMany();
+  await prisma.notification.deleteMany();
   await prisma.kycVerification.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.dispute.deleteMany();

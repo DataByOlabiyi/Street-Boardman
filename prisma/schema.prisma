@@ -176,6 +176,7 @@ model User {
   auditLogs       AuditLog[]
   commissionsEarned Commission[]
   kycVerifications KycVerification[]
+  notifications        Notification[]
   adjustmentsRequested WalletAdjustment[] @relation("AdjustmentRequestedBy")
   adjustmentsReviewed  WalletAdjustment[] @relation("AdjustmentReviewedBy")
 
@@ -584,4 +585,32 @@ model WalletAdjustment {
 
   @@index([status])
   @@index([walletId])
+}
+
+// Outbox for user notifications (FEAT-041). Rows are written in the same
+// transaction as the money movement they describe, so a crash can't lose
+// one and a payout retry can't duplicate one (dedupeKey). The worker
+// sends PENDING rows by SMS; the same rows are the user's in-app inbox.
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model Notification {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id])
+  type      String
+  message   String
+  status    NotificationStatus @default(PENDING)
+  attempts  Int                @default(0)
+  lastError String?
+  dedupeKey String             @unique
+  createdAt DateTime           @default(now())
+  sentAt    DateTime?
+  readAt    DateTime?
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
 }

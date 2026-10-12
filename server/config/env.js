@@ -116,6 +116,14 @@ module.exports = {
     webhookSecret: process.env.PAYSTACK_WEBHOOK_SECRET || '',
   },
 
+  // SMS through Termii (FEAT-014/041). Without a key, DEMO logs messages
+  // and PRODUCTION refuses to pretend they were sent.
+  termii: {
+    apiKey: process.env.TERMII_API_KEY || '',
+    senderId: process.env.TERMII_SENDER_ID || 'StreetBMN',
+    baseUrl: process.env.TERMII_BASE_URL || 'https://api.ng.termii.com',
+  },
+
   // Alert when the Paystack balance can't cover pending withdrawals plus
   // this margin (TASK-024).
   payouts: {
