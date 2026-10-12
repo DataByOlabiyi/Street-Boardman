@@ -5,6 +5,7 @@ client/dist/
 .env.test
 *.log
 coverage/
+uploads/
 .DS_Store
 .prisma-engines/
 loadtest/results/*

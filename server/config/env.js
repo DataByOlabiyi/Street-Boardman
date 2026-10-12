@@ -116,6 +116,12 @@ module.exports = {
     webhookSecret: process.env.PAYSTACK_WEBHOOK_SECRET || '',
   },
 
+  // Where uploaded evidence photos are stored (FEAT-042). In Docker this
+  // is a volume, so photos survive container rebuilds.
+  uploads: {
+    dir: process.env.UPLOAD_DIR || require('path').join(process.cwd(), 'uploads'),
+  },
+
   // SMS through Termii (FEAT-014/041). Without a key, DEMO logs messages
   // and PRODUCTION refuses to pretend they were sent.
   termii: {

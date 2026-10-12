@@ -4,10 +4,11 @@ const logger = require('../utils/logger');
 const errorTracking = require('../utils/errorTracking');
 const settingsService = require('./settingsService');
 const payoutService = require('./payoutService');
+const uploadService = require('./uploadService');
 const { SETTING_KEYS } = require('../config/constants');
 const { recordAuditLog } = require('../middleware/auditLog');
 
-async function submitResult(boardmanProfile, competitionId, { winningOptionId, finalScore, evidenceUrls, notes }) {
+async function submitResult(boardmanProfile, competitionId, { winningOptionId, finalScore, evidenceUrls, evidenceUploadIds, notes }) {
   const competition = await prisma.competition.findUnique({
     where: { id: competitionId },
     include: { betOptions: true, result: true },
@@ -21,6 +22,9 @@ async function submitResult(boardmanProfile, competitionId, { winningOptionId, f
   }
   if (!competition.betOptions.some((o) => o.id === winningOptionId)) {
     throw new AppError('That betting option does not belong to this competition', 422);
+  }
+  if ((evidenceUrls?.length || 0) + (evidenceUploadIds?.length || 0) > 10) {
+    throw new AppError('At most 10 pieces of evidence', 422);
   }
 
   const windowHours = await settingsService.getSetting(SETTING_KEYS.RESULT_CONFIRMATION_WINDOW_HOURS);
@@ -39,6 +43,11 @@ async function submitResult(boardmanProfile, competitionId, { winningOptionId, f
         confirmationDeadline,
       },
     });
+    const uploaded = await uploadService.attachToResult(tx, evidenceUploadIds, boardmanProfile.userId, result.id);
+    if (uploaded.length) {
+      await tx.result.update({ where: { id: result.id }, data: { evidenceUrls: [...result.evidenceUrls, ...uploaded] } });
+      result.evidenceUrls = [...result.evidenceUrls, ...uploaded];
+    }
     await tx.competition.update({ where: { id: competitionId }, data: { status: 'PENDING_CONFIRMATION' } });
     return result;
   });
