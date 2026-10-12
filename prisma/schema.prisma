@@ -374,9 +374,14 @@ model Bet {
   potentialPayout  Decimal     @db.Decimal(14, 2)
   status           BetStatus   @default(OPEN)
   placedAt         DateTime    @default(now())
+  // Client-chosen Idempotency-Key: a retry after a lost response returns
+  // this bet instead of placing (and charging) a second one. Unique per
+  // bettor; bets placed without a key are unaffected (NULLs never clash).
+  idempotencyKey   String?
 
   payout Payout?
 
+  @@unique([betterId, idempotencyKey])
   @@index([betterId])
   @@index([competitionId])
   @@index([status])

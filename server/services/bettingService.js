@@ -57,10 +57,18 @@ async function flagIfSelfBettingSuspected(tx, { betId, betterId, boardmanProfile
   );
 }
 
-async function placeBet({ betterId, betOptionId, stake }) {
+// With an idempotencyKey, a retried request (the response was lost, e.g.
+// the API restarted mid-request: seen in the FEAT-054 failure drill)
+// returns the bet that was already placed, marked `replayed`, instead of
+// placing and charging a second one.
+async function placeBet({ betterId, betOptionId, stake, idempotencyKey }) {
   const stakeDecimal = round2(toDecimal(stake));
   if (stakeDecimal.lte(0) || stakeDecimal.lt(MIN_STAKE)) {
     throw new AppError(`Minimum stake is ₦${MIN_STAKE}`, 422);
+  }
+  if (idempotencyKey) {
+    const earlier = await findByIdempotencyKey(betterId, idempotencyKey, { betOptionId, stakeDecimal });
+    if (earlier) return earlier;
   }
 
   const betOption = await prisma.betOption.findUnique({
@@ -92,6 +100,33 @@ async function placeBet({ betterId, betOptionId, stake }) {
       .times(stakeDecimal.dividedBy(optionAfter))
   );
 
+  try {
+    return await placeBetTransaction({ betterId, betOptionId, stakeDecimal, idempotencyKey, competition, betOption, estimatedPayout });
+  } catch (err) {
+    // Two requests with the same key raced: the unique constraint let one
+    // through and aborted this one. Return the winner's bet.
+    if (idempotencyKey && err.code === 'P2002') {
+      const earlier = await findByIdempotencyKey(betterId, idempotencyKey, { betOptionId, stakeDecimal });
+      if (earlier) return earlier;
+    }
+    throw err;
+  }
+}
+
+async function findByIdempotencyKey(betterId, idempotencyKey, { betOptionId, stakeDecimal }) {
+  const earlier = await prisma.bet.findUnique({
+    where: { betterId_idempotencyKey: { betterId, idempotencyKey } },
+    include: { betOption: true },
+  });
+  if (!earlier) return null;
+  if (earlier.betOptionId !== betOptionId || !toDecimal(earlier.stake).equals(stakeDecimal)) {
+    throw new AppError('This Idempotency-Key was already used for a different bet', 409);
+  }
+  await withOptionTotals({ betOptions: [earlier.betOption] });
+  return { ...earlier, replayed: true };
+}
+
+async function placeBetTransaction({ betterId, betOptionId, stakeDecimal, idempotencyKey, competition, betOption, estimatedPayout }) {
   return prisma.$transaction(async (tx) => {
     const betCode = await generateBetCode(tx);
     const wallet = await walletService.getWalletByUserId(tx, betterId);
@@ -105,6 +140,7 @@ async function placeBet({ betterId, betOptionId, stake }) {
         stake: stakeDecimal,
         potentialPayout: estimatedPayout,
         status: 'OPEN',
+        idempotencyKey: idempotencyKey || null,
       },
     });
 
