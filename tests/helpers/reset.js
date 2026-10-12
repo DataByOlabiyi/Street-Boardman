@@ -31,6 +31,7 @@ async function resetDatabase() {
   await prisma.commission.deleteMany();
   await prisma.result.deleteMany();
   await prisma.bet.deleteMany();
+  await prisma.betOptionShard.deleteMany();
   await prisma.betOption.deleteMany();
   await prisma.competitionParticipant.deleteMany();
   // Ledger entries/accounts (TASK-016/017) reference Wallet and Competition,

@@ -81,7 +81,14 @@ Throughput (≈44 bets/s) is set by what 200 users at 20 bets a minute offer, no
 
 - **The p99 spike during a payout** (1.9 s for background bets) shows that payout writes compete with live betting. Look at this first if payout sizes grow: batch winners per transaction, or run payouts at a lower Postgres priority.
 - **Sweep latency** dominates time-to-paid (up to 60 s). If that matters for the product, trigger the payout on confirmation instead of waiting for the next tick.
-- **Single hot rows.** Per-option totals are still one row each. If p95 climbs with more bettors per match, move to append-only stake rows summed on read, or sharded counters.
+- **Single hot rows (fixed with sharded counters).** Each option's total is now spread over 16 `BetOptionShard` rows; a bet adds to a random one and readers sum them. Back to back on fresh databases at 400 bettors on one match, two pairs in opposite order:
+
+  | | bets/s | p95 | rejected |
+  |---|---|---|---|
+  | `main` (one row per option) | 12.1 / 28.1 | 24.3 s / 8.2 s | 317 / 72 |
+  | sharded | 27.6 / 36.1 | 5.8 s / 5.8 s | 0 / 0 |
+
+  At 200 bettors the two are level within this machine's noise (40.9 vs 39.3 bets/s, p95 0.93 vs 1.22 s). 400 bettors is still slow (p95 ~6 s): the next limits are the single API container and this shared laptop, so re-measure on real infrastructure before going further.
 - **Betting-closed race (fixed for cancellation).** `placeBet` now re-reads the competition status inside its transaction, after the bet insert, and cancelling takes `FOR UPDATE`, so a bet can no longer land in a cancelled competition's escrow. An explicit `FOR SHARE` lock was tried first and measurably slowed bets under load, so the fix relies on the `KEY SHARE` lock the bet's foreign key already takes. A bet can still land just after an ordinary close; that's harmless because payout reads every bet.
 - **Connection pool (fixed after the Prisma 7 upgrade).** node-postgres pools default to 10 connections, where Prisma 5 sized its pool from the CPU count. At 400 bettors on one match, `main` failed 143 bets (1.3%) with "Unable to start a transaction in the given time". The pool is now 20 per process (`DATABASE_POOL_MAX`), which brought that to 1 failure in about 9,000. Latency at 400 bettors is still dominated by the single hot rows above.
 - **Rate-limit store.** In-memory per process (see ASVS review O5). With more than one API instance, each instance has its own counters.
