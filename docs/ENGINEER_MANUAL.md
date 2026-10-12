@@ -178,7 +178,7 @@ by `/auth/login` and the two `/auth/register/*` routes).
 | POST | `/uploads/evidence` | BOARDMAN | Body is the photo itself, `Content-Type: image/jpeg` or `image/png`, ≤ 5 MB, 30/hour. Type checked from the bytes; EXIF/GPS and PNG text stripped. Returns `{ upload: { id, url } }` |
 | GET | `/uploads/evidence/:id` | none | The stored photo (random UUID URL) |
 | POST | `/competitions/:id/dispute` | any authenticated | `PENDING_CONFIRMATION -> DISPUTED` |
-| POST | `/bets` | BETTER | `{ betOptionId, stake }`, rate-limited |
+| POST | `/bets` | BETTER | `{ betOptionId, stake }`, rate-limited. Optional `Idempotency-Key` header (8–64 chars, one per bet slip): a retry returns the original bet with 200 and `Idempotent-Replayed: true` |
 | GET | `/bets/me` | BETTER | Own bet history |
 | GET | `/bets/:betCode` | BETTER, owner | One ticket |
 

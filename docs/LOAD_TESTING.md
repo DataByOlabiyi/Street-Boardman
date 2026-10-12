@@ -77,6 +77,8 @@ Throughput (≈44 bets/s) is set by what 200 users at 20 bets a minute offer, no
 
 **Money integrity after all runs:** about 53,000 bets and 2 payouts across 1,390 wallets. Every wallet reconciles with the double-entry ledger and none is negative. (The one mismatch found was the seed script writing the demo bettor's balance without a ledger entry, which is now fixed.)
 
+Failure drills (killing the worker, Postgres or the API under load) are in [runbooks/FAILURE_DRILLS.md](runbooks/FAILURE_DRILLS.md).
+
 ## What to watch next
 
 - **The p99 spike during a payout** (1.9 s for background bets) shows that payout writes compete with live betting. Look at this first if payout sizes grow: batch winners per transaction, or run payouts at a lower Postgres priority.
