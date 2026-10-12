@@ -131,10 +131,18 @@ processed once the transfer actually happens.
 
 ## 16. Competition Cancellation & Refund Procedures
 
-If a competition needs to be cancelled (e.g. the real event never
-happened), an Admin can cancel it. Every open bet is refunded in full and
-**no commission is taken** on a cancelled competition — you only earn
-commission on competitions that actually complete.
+If the real event isn't going to happen (rain, a player didn't show
+up), you can cancel the competition yourself, as long as you
+haven't submitted a result yet. Give a short reason; it's kept on record. Every
+open bet is refunded in full straight away and **no commission is taken**
+on a cancelled competition: you only earn commission on competitions that
+actually complete. After you've submitted a result, only an Admin can
+cancel it, through the dispute process.
+
+While betting is open you can also correct the description or move the
+betting deadline. You can change the title only until the first bet comes
+in, and the betting options never change once created, so nobody's stake
+ends up on something they didn't choose.
 
 ## 17. Responsible Operation
 

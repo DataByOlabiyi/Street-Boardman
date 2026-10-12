@@ -5,7 +5,13 @@ const validate = require('../middleware/validate');
 const { requireBoardmanProfile } = require('../controllers/boardmanController');
 const competitionController = require('../controllers/competitionController');
 const resultController = require('../controllers/resultController');
-const { createCompetitionSchema, submitResultSchema, raiseDisputeSchema } = require('../validators/schemas');
+const {
+  createCompetitionSchema,
+  updateCompetitionSchema,
+  cancelCompetitionSchema,
+  submitResultSchema,
+  raiseDisputeSchema,
+} = require('../validators/schemas');
 
 // Public: anyone can browse what's on offer, even before logging in.
 router.get('/', competitionController.listOpenCompetitions);
@@ -33,6 +39,22 @@ router.patch(
   requireRole('BOARDMAN'),
   requireBoardmanProfile,
   competitionController.closeBetting
+);
+router.patch(
+  '/:id',
+  requireAuth,
+  requireRole('BOARDMAN'),
+  requireBoardmanProfile,
+  validate(updateCompetitionSchema),
+  competitionController.updateCompetition
+);
+router.post(
+  '/:id/cancel',
+  requireAuth,
+  requireRole('BOARDMAN'),
+  requireBoardmanProfile,
+  validate(cancelCompetitionSchema),
+  competitionController.cancelCompetition
 );
 router.get(
   '/:id/bets',

@@ -110,6 +110,20 @@ async function placeBet({ betterId, betOptionId, stake }) {
       },
     });
 
+    // The checks above ran before this transaction, so a cancel could land
+    // in between and leave this bet in a cancelled competition's escrow,
+    // never refunded. Inserting the bet took a KEY SHARE lock on the
+    // competition row (its foreign key), held until commit; cancelling
+    // takes FOR UPDATE, which conflicts with it. So either this bet got in
+    // first and the cancel waits for it and refunds it, or the cancel
+    // committed first and this re-read sees it. No extra lock on the hot
+    // path: an explicit FOR SHARE here measurably slowed bets in the
+    // hot-competition load test (TASK-048).
+    const [current] = await tx.$queryRaw`SELECT status FROM "Competition" WHERE id = ${competition.id}`;
+    if (current.status !== 'BETTING_OPEN') {
+      throw new AppError('Betting is closed for this competition', 400);
+    }
+
     await walletService.applyWalletTransaction(tx, {
       walletId: wallet.id,
       type: 'BET_STAKE',

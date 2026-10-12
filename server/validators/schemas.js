@@ -105,6 +105,32 @@ const createCompetitionSchema = z.object({
   options: z.array(z.string()).min(2, 'At least two betting options are required'),
 });
 
+// Only these fields are editable (FEAT-039); .strict() turns an attempt to
+// change options or commission rates into a clear 422.
+const updateCompetitionSchema = z
+  .object({
+    title: z.string().trim().min(3).max(120).optional(),
+    description: z.string().max(1000).optional(),
+    bettingDeadline: z.string().datetime().optional(),
+  })
+  .strict();
+
+const cancelCompetitionSchema = z.object({
+  reason: z.string().trim().min(5, 'Tell bettors why the competition is cancelled').max(500),
+});
+
+const adjustmentRequestSchema = z.object({
+  userId: z.string().min(1),
+  amount: z.number().refine((n) => n !== 0, 'Amount cannot be zero'),
+  reason: z.string().trim().min(10, 'Explain the adjustment (at least 10 characters)').max(500),
+});
+
+const adjustmentApproveSchema = z.object({ note: z.string().trim().max(500).optional() });
+
+const adjustmentRejectSchema = z.object({
+  note: z.string().trim().min(5, 'Say why the adjustment is rejected').max(500),
+});
+
 const placeBetSchema = z.object({
   betOptionId: z.string().min(1),
   stake: z.number().positive(),
@@ -146,6 +172,11 @@ module.exports = {
   paystackInitializeSchema,
   withdrawalSchema,
   createCompetitionSchema,
+  adjustmentRequestSchema,
+  adjustmentApproveSchema,
+  adjustmentRejectSchema,
+  updateCompetitionSchema,
+  cancelCompetitionSchema,
   placeBetSchema,
   submitResultSchema,
   raiseDisputeSchema,
