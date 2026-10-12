@@ -60,6 +60,13 @@ app.post(
 );
 
 app.use(express.json());
+// Express 5 leaves req.body undefined when there's no JSON body (Express 4
+// gave {}). Action buttons send body-less PATCHes, and handlers and
+// all-optional schemas expect an object.
+app.use((req, res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+});
 
 app.get('/health', (req, res) => res.json({ ok: true, mode: env.appMode }));
 
