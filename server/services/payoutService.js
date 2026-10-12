@@ -222,10 +222,21 @@ async function processPayoutsForCompetition(competitionId) {
 // first: Postgres row-locks it, so the second transaction waits, then
 // matches zero rows and skips. Each bet is also flipped OPEN -> REFUNDED
 // conditionally before any money moves, as a second guard.
-async function cancelAndRefundCompetition(competitionId) {
+//
+// `allowedFrom` narrows which statuses may be cancelled: a Boardman can
+// only cancel before a result exists (FEAT-039). It's part of the claim,
+// so a result submitted concurrently can't slip past the check.
+async function cancelAndRefundCompetition(competitionId, { allowedFrom } = {}) {
   return prisma.$transaction(async (tx) => {
+    // FOR UPDATE conflicts with the KEY SHARE lock every in-flight bet
+    // holds on this row (see bettingService.placeBet), so the refund below
+    // waits for those bets and includes them. A plain UPDATE wouldn't.
+    await tx.$queryRaw`SELECT id FROM "Competition" WHERE id = ${competitionId} FOR UPDATE`;
     const claim = await tx.competition.updateMany({
-      where: { id: competitionId, status: { notIn: ['COMPLETED', 'CANCELLED_REFUNDED'] } },
+      where: {
+        id: competitionId,
+        status: allowedFrom ? { in: allowedFrom } : { notIn: ['COMPLETED', 'CANCELLED_REFUNDED'] },
+      },
       data: { status: 'CANCELLED_REFUNDED' },
     });
     if (claim.count === 0) {

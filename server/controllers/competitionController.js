@@ -22,6 +22,26 @@ const closeBetting = asyncHandler(async (req, res) => {
   res.json({ competition });
 });
 
+const updateCompetition = asyncHandler(async (req, res) => {
+  const competition = await competitionService.updateCompetition(
+    req.boardmanProfile.id,
+    req.params.id,
+    req.body,
+    req.user.id
+  );
+  res.json({ competition });
+});
+
+const cancelCompetition = asyncHandler(async (req, res) => {
+  const result = await competitionService.cancelCompetition(
+    req.boardmanProfile.id,
+    req.params.id,
+    req.body.reason,
+    req.user.id
+  );
+  res.json(result);
+});
+
 const listMyCompetitions = asyncHandler(async (req, res) => {
   const competitions = await prisma.competition.findMany({
     where: { boardmanProfileId: req.boardmanProfile.id },
@@ -49,6 +69,8 @@ module.exports = {
   listOpenCompetitions,
   getCompetition,
   closeBetting,
+  updateCompetition,
+  cancelCompetition,
   listMyCompetitions,
   listBetsForMyCompetition,
 };

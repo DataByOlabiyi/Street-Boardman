@@ -167,6 +167,8 @@ by `/auth/login` and the two `/auth/register/*` routes).
 | POST | `/competitions` | BOARDMAN, approved | Creates with `BETTING_OPEN` status |
 | GET | `/competitions/mine/list` | BOARDMAN | Own competitions, any status |
 | PATCH | `/competitions/:id/close-betting` | BOARDMAN, owner | `BETTING_OPEN -> BETTING_CLOSED` |
+| PATCH | `/competitions/:id` | BOARDMAN, owner | `{ title?, description?, bettingDeadline? }` while `BETTING_OPEN`; title only before the first bet; options and rates never change |
+| POST | `/competitions/:id/cancel` | BOARDMAN, owner | `{ reason }`; refunds every stake, no commission; only before a result is submitted |
 | GET | `/competitions/:id/bets` | BOARDMAN, owner | Bets received |
 | POST | `/competitions/:id/result` | BOARDMAN, owner | `BETTING_CLOSED -> PENDING_CONFIRMATION` |
 | POST | `/competitions/:id/dispute` | any authenticated | `PENDING_CONFIRMATION -> DISPUTED` |
@@ -175,20 +177,28 @@ by `/auth/login` and the two `/auth/register/*` routes).
 | GET | `/bets/:betCode` | BETTER, owner | One ticket |
 
 ### Admin (all require `role: ADMIN`)
+
+Every list below takes `page`, `pageSize` (default 100, max 500), `from`, `to` and `format=csv`. JSON keeps its original key (`users`, `bets`, …) and adds `page: { page, pageSize, total }`. CSV exports are capped at 10,000 rows, neutralise spreadsheet formulas, and are recorded as `DATA_EXPORTED` in the audit log.
+
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/admin/overview` | Platform-wide counts + revenue |
 | GET | `/admin/boardmen` / `/admin/boardmen/pending` | List |
 | PATCH | `/admin/boardmen/:id/approve` \| `/reject` \| `/suspend` | |
-| GET | `/admin/users` | |
+| GET | `/admin/users` | Filters: `role`, `status`, `kycTier`, `q` (name/phone) |
 | PATCH | `/admin/users/:id/suspend` \| `/reactivate` | |
-| GET | `/admin/competitions` / `/admin/bets` | Full visibility |
+| GET | `/admin/competitions` / `/admin/bets` | Filters: `status`, `category`, `boardmanProfileId`, `q` / `status`, `competitionId`, `betterId`, `q` (bet code) |
 | GET | `/admin/disputes` | |
 | PATCH | `/admin/disputes/:id/resolve` | `{ action: 'CONFIRM'|'CANCEL', winningOptionId? }` — runs the payout or refund engine |
 | PATCH | `/admin/withdrawals/:id/process` \| `/reject` | Process starts a Paystack transfer in PRODUCTION (settled by webhook); DEMO settles at once |
+| GET | `/admin/withdrawals` | Filters: `status`, `userId` (MANAGE_WITHDRAWALS) |
 | GET | `/admin/payouts/float` | Paystack balance vs pending withdrawals (FINANCE / SUPER_ADMIN) |
-| GET | `/admin/ledger` | Recent `WalletTransaction`s across all wallets |
-| GET | `/admin/audit-logs` | |
+| GET | `/admin/ledger` | `WalletTransaction`s across all wallets. Filters: `type`, `walletId`, `userId` |
+| GET | `/admin/audit-logs` | Filters: `action`, `actorUserId`, `entityType`, `entityId` |
+| GET | `/admin/reports/summary` | `?from&to&groupBy=day` (default last 30 days, max 366): deposits, withdrawals, stakes, winnings, refunds, commission, adjustments, new users; days in Lagos time (VIEW_LEDGER) |
+| GET | `/admin/adjustments` | Manual corrections, filter `status` (VIEW_LEDGER) |
+| POST | `/admin/adjustments` | `{ userId, amount (signed), reason }` proposes a correction, max ₦1,000,000 (ADJUST_BALANCES) |
+| PATCH | `/admin/adjustments/:id/approve` \| `/reject` | A **different** staff member reviews; approval posts an `ADJUSTMENT` through the ledger and can't overdraw (ADJUST_BALANCES) |
 | GET | `/admin/settings` / PATCH `/admin/settings` | Commission rates, confirmation window |
 
 **Error format**: every error response is `{ "error": "human-readable message" }`
