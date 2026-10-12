@@ -18,6 +18,8 @@ RUN npm run build
 # startup, which is how API_UPSTREAM reaches the config.
 FROM nginx:1.27-alpine
 ENV API_UPSTREAM=http://api:4000
+# Docker's embedded DNS; see the resolver note in default.conf.template.
+ENV NGINX_RESOLVER=127.0.0.11
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
