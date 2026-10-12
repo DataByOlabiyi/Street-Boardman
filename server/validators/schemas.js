@@ -131,6 +131,18 @@ const adjustmentRejectSchema = z.object({
   note: z.string().trim().min(5, 'Say why the adjustment is rejected').max(500),
 });
 
+// Public browse query (FEAT-043); strings from the URL are coerced.
+const browseCompetitionsQuery = z.object({
+  q: z.string().trim().min(1).max(100).optional(),
+  category: z.enum(['FOOTBALL', 'SNOOKER', 'FIGHT', 'TABLE_GAME', 'OTHER']).optional(),
+  location: z.string().trim().min(2).max(100).optional(),
+  closingWithinHours: z.coerce.number().positive().max(24 * 30).optional(),
+  boardmanProfileId: z.string().min(1).max(64).optional(),
+  sort: z.enum(['deadline', 'pool', 'newest']).default('deadline'),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 const placeBetSchema = z.object({
   betOptionId: z.string().min(1),
   stake: z.number().positive(),
@@ -172,6 +184,7 @@ module.exports = {
   paystackInitializeSchema,
   withdrawalSchema,
   createCompetitionSchema,
+  browseCompetitionsQuery,
   adjustmentRequestSchema,
   adjustmentApproveSchema,
   adjustmentRejectSchema,

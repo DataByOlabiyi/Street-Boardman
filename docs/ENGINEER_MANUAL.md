@@ -162,8 +162,10 @@ by `/auth/login` and the two `/auth/register/*` routes).
 ### Competitions / Bets
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| GET | `/competitions` | none | Public list of `BETTING_OPEN` |
-| GET | `/competitions/:id` | none | Public detail |
+| GET | `/competitions` | none | Open competitions. `q` (title, description, participants), `category`, `location` (Boardman's), `closingWithinHours`, `boardmanProfileId`, `sort=deadline\|pool\|newest`, `page`, `pageSize` (≤100). Each has `pool` and a `boardman` card |
+| GET | `/competitions/:id` | none | Public detail, with `pool` and `boardman` |
+| GET | `/competitions/:id/pool` | none | Live pool only, cheap enough to poll: totals, share and estimated return per ₦100 per option, bet counts, no-contest notices |
+| GET | `/boardmen/:id/public` | none | Approved Boardman's track record and trust score (null until 5 settled competitions; formula in `boardmanTrustService.js`) |
 | POST | `/competitions` | BOARDMAN, approved | Creates with `BETTING_OPEN` status |
 | GET | `/competitions/mine/list` | BOARDMAN | Own competitions, any status |
 | PATCH | `/competitions/:id/close-betting` | BOARDMAN, owner | `BETTING_OPEN -> BETTING_CLOSED` |

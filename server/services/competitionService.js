@@ -3,6 +3,8 @@ const AppError = require('../utils/appError');
 const settingsService = require('./settingsService');
 const { SETTING_KEYS } = require('../config/constants');
 const payoutService = require('./payoutService');
+const boardmanTrustService = require('./boardmanTrustService');
+const { poolView } = require('./poolService');
 const { recordAuditLog } = require('../middleware/auditLog');
 
 async function createCompetition(boardmanProfile, { title, description, category, bettingDeadline, participants, options }) {
@@ -44,12 +46,99 @@ async function createCompetition(boardmanProfile, { title, description, category
   });
 }
 
-async function listOpenCompetitions() {
-  return prisma.competition.findMany({
-    where: { status: 'BETTING_OPEN' },
-    include: { betOptions: true, participants: true },
-    orderBy: { bettingDeadline: 'asc' },
+// Public browse (FEAT-043): search across title, description and
+// participants, filter by category, the Boardman's location, or closing
+// soon, and sort by deadline, pool size or newest. Open competitions are a
+// bounded set, so matches are loaded once (capped) and sorted and paged in
+// memory, which is what makes "biggest pool" sortable at all.
+const OPEN_LIST_CAP = 500;
+
+async function listOpenCompetitions(query = {}) {
+  const { q, category, location, closingWithinHours, boardmanProfileId, sort = 'deadline', page = 1, pageSize = 50 } = query;
+  const where = {
+    status: 'BETTING_OPEN',
+    bettingDeadline: {
+      gt: new Date(),
+      ...(closingWithinHours ? { lte: new Date(Date.now() + closingWithinHours * 3600000) } : {}),
+    },
+    ...(category ? { category } : {}),
+    ...(boardmanProfileId ? { boardmanProfileId } : {}),
+    ...(location ? { boardmanProfile: { businessLocation: { contains: location, mode: 'insensitive' } } } : {}),
+    ...(q
+      ? {
+          OR: [
+            { title: { contains: q, mode: 'insensitive' } },
+            { description: { contains: q, mode: 'insensitive' } },
+            { participants: { some: { name: { contains: q, mode: 'insensitive' } } } },
+          ],
+        }
+      : {}),
+  };
+  const matches = await prisma.competition.findMany({
+    where,
+    include: {
+      betOptions: true,
+      participants: true,
+      boardmanProfile: { include: { user: { select: { fullName: true } } } },
+    },
+    orderBy: sort === 'newest' ? { createdAt: 'desc' } : { bettingDeadline: 'asc' },
+    take: OPEN_LIST_CAP,
   });
+
+  const withPool = matches.map((c) => ({ competition: c, pool: poolView(c) }));
+  if (sort === 'pool') withPool.sort((a, b) => Number(b.pool.totalPool) - Number(a.pool.totalPool));
+  const pageItems = withPool.slice((page - 1) * pageSize, page * pageSize);
+  const cards = await boardmanTrustService.publicCards(pageItems.map(({ competition }) => competition.boardmanProfile));
+
+  return {
+    competitions: pageItems.map(({ competition, pool }) => toPublicCompetition(competition, pool, cards)),
+    page: { page, pageSize, total: withPool.length },
+  };
+}
+
+// Public shape: no internal ids beyond what the client links with, and the
+// Boardman as a card, never their account.
+function toPublicCompetition(competition, pool, cards) {
+  // Payout retry internals (error text, attempt count) stay staff-only.
+  const { boardmanProfile, lastPayoutError, payoutAttemptCount, ...rest } = competition;
+  return { ...rest, pool, boardman: cards.get(competition.boardmanProfileId) || null };
+}
+
+async function getPublicCompetition(id) {
+  const competition = await prisma.competition.findUnique({
+    where: { id },
+    include: {
+      betOptions: true,
+      participants: true,
+      result: true,
+      boardmanProfile: { include: { user: { select: { fullName: true } } } },
+    },
+  });
+  if (!competition) throw new AppError('Competition not found', 404);
+  const [pool, cards] = await Promise.all([
+    poolForCompetition(competition),
+    boardmanTrustService.publicCards([competition.boardmanProfile]),
+  ]);
+  return toPublicCompetition(competition, pool, cards);
+}
+
+// Light enough to poll while a match is live (FEAT-036).
+async function getLivePool(id) {
+  const competition = await prisma.competition.findUnique({
+    where: { id },
+    select: { id: true, status: true, bettingDeadline: true, boardmanCommissionRate: true, platformCommissionRate: true, betOptions: true },
+  });
+  if (!competition) throw new AppError('Competition not found', 404);
+  return { id, status: competition.status, bettingDeadline: competition.bettingDeadline, pool: await poolForCompetition(competition) };
+}
+
+async function poolForCompetition(competition) {
+  const counts = await prisma.bet.groupBy({
+    by: ['betOptionId'],
+    where: { competitionId: competition.id, status: { not: 'VOID' } },
+    _count: true,
+  });
+  return poolView(competition, Object.fromEntries(counts.map((c) => [c.betOptionId, c._count])));
 }
 
 async function getCompetitionById(id) {
@@ -166,6 +255,8 @@ module.exports = {
   createCompetition,
   listOpenCompetitions,
   getCompetitionById,
+  getPublicCompetition,
+  getLivePool,
   closeBetting,
   autoCloseExpiredCompetitions,
   updateCompetition,

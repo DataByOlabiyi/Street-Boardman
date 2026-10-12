@@ -92,6 +92,19 @@ Winnings come from the total pool staked on the competition, minus the
 Boardman's and the Platform's commission, shared among winners in
 proportion to how much each of them staked on the winning side.
 
+Two cases where **everyone gets their full stake back and no commission is
+taken**: if every bet is on the same side, or if the winning option is one
+nobody bet on. A competition's page warns you while either could happen.
+
+Each competition's page shows the live pool: how much is on each side and
+roughly what ₦100 on that side would return if it won. It changes as bets
+come in, so treat it as an estimate.
+
+You can also see the Boardman running it: where they operate, how many
+competitions they've completed, and a **trust score** once they've settled
+at least five. The score drops when a result of theirs is thrown out after
+a dispute, and a little when they cancel a competition.
+
 ## 10. How to Withdraw
 
 1. Go to **Wallet -> Withdraw**.
