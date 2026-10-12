@@ -16,6 +16,7 @@ const {
 // Public: anyone can browse what's on offer, even before logging in.
 router.get('/', competitionController.listOpenCompetitions);
 router.get('/:id', competitionController.getCompetition);
+router.get('/:id/pool', competitionController.getLivePool);
 
 // Boardman-only management routes.
 router.post(
