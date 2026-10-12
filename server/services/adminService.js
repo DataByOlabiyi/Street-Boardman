@@ -90,18 +90,6 @@ async function reactivateUser(userId, adminUserId) {
   return updated;
 }
 
-async function listUsers() {
-  return prisma.user.findMany({ orderBy: { createdAt: 'desc' }, select: STAFF_VISIBLE_USER_FIELDS });
-}
-
-async function getFinancialLedger({ take = 100 } = {}) {
-  return prisma.walletTransaction.findMany({
-    orderBy: { createdAt: 'desc' },
-    take,
-    include: { wallet: { include: { user: staffUser } } },
-  });
-}
-
 // Grants or revokes a staff sub-role (TASK-030). Gated by MANAGE_STAFF at
 // the route layer — only a SUPER_ADMIN can reach this. The target must
 // already be an ADMIN-role account; a staffRole on a Better/Boardman
@@ -138,7 +126,5 @@ module.exports = {
   suspendBoardman,
   suspendUser,
   reactivateUser,
-  listUsers,
-  getFinancialLedger,
   setStaffRole,
 };

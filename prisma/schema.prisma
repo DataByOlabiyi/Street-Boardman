@@ -176,6 +176,8 @@ model User {
   auditLogs       AuditLog[]
   commissionsEarned Commission[]
   kycVerifications KycVerification[]
+  adjustmentsRequested WalletAdjustment[] @relation("AdjustmentRequestedBy")
+  adjustmentsReviewed  WalletAdjustment[] @relation("AdjustmentReviewedBy")
 
   @@index([role])
   @@index([deviceFingerprint])
@@ -210,6 +212,7 @@ model Wallet {
 
   transactions  WalletTransaction[]
   ledgerAccount LedgerAccount?
+  adjustments   WalletAdjustment[]
 }
 
 model WalletTransaction {
@@ -541,4 +544,31 @@ model OtpCode {
   createdAt   DateTime   @default(now())
 
   @@index([phone, purpose])
+}
+
+// Manual balance corrections need two different staff members: one
+// proposes, another approves, and only approval moves money (FEAT-047).
+enum WalletAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model WalletAdjustment {
+  id            String                 @id @default(cuid())
+  walletId      String
+  wallet        Wallet                 @relation(fields: [walletId], references: [id])
+  amount        Decimal                @db.Decimal(14, 2) // signed: + credits, - debits
+  reason        String
+  status        WalletAdjustmentStatus @default(PENDING)
+  requestedById String
+  requestedBy   User                   @relation("AdjustmentRequestedBy", fields: [requestedById], references: [id])
+  reviewedById  String?
+  reviewedBy    User?                  @relation("AdjustmentReviewedBy", fields: [reviewedById], references: [id])
+  reviewNote    String?
+  createdAt     DateTime               @default(now())
+  reviewedAt    DateTime?
+
+  @@index([status])
+  @@index([walletId])
 }

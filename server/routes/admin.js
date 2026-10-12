@@ -5,7 +5,15 @@ const requirePermission = require('../middleware/requirePermission');
 const validate = require('../middleware/validate');
 const adminController = require('../controllers/adminController');
 const withdrawalController = require('../controllers/withdrawalController');
-const { resolveDisputeSchema, updateSettingsSchema, setStaffRoleSchema } = require('../validators/schemas');
+const adminListController = require('../controllers/adminListController');
+const {
+  resolveDisputeSchema,
+  updateSettingsSchema,
+  setStaffRoleSchema,
+  adjustmentRequestSchema,
+  adjustmentApproveSchema,
+  adjustmentRejectSchema,
+} = require('../validators/schemas');
 const { PERMISSIONS } = require('../config/staffPermissions');
 const { requireStaffSecurity } = require('../services/staffSecurityService');
 
@@ -24,7 +32,7 @@ router.patch('/boardmen/:id/approve', requirePermission(PERMISSIONS.MANAGE_BOARD
 router.patch('/boardmen/:id/reject', requirePermission(PERMISSIONS.MANAGE_BOARDMEN), adminController.rejectBoardman);
 router.patch('/boardmen/:id/suspend', requirePermission(PERMISSIONS.MANAGE_BOARDMEN), adminController.suspendBoardman);
 
-router.get('/users', requirePermission(PERMISSIONS.VIEW_ONLY), adminController.listUsers);
+router.get('/users', requirePermission(PERMISSIONS.VIEW_ONLY), adminListController.listUsers);
 router.patch('/users/:id/suspend', requirePermission(PERMISSIONS.MANAGE_USERS), adminController.suspendUser);
 router.patch('/users/:id/reactivate', requirePermission(PERMISSIONS.MANAGE_USERS), adminController.reactivateUser);
 router.patch(
@@ -34,8 +42,8 @@ router.patch(
   adminController.setStaffRole
 );
 
-router.get('/competitions', requirePermission(PERMISSIONS.VIEW_ONLY), adminController.listCompetitions);
-router.get('/bets', requirePermission(PERMISSIONS.VIEW_ONLY), adminController.listBets);
+router.get('/competitions', requirePermission(PERMISSIONS.VIEW_ONLY), adminListController.listCompetitions);
+router.get('/bets', requirePermission(PERMISSIONS.VIEW_ONLY), adminListController.listBets);
 
 router.get('/disputes', requirePermission(PERMISSIONS.VIEW_ONLY), adminController.listDisputes);
 router.patch(
@@ -45,6 +53,7 @@ router.patch(
   adminController.resolveDispute
 );
 
+router.get('/withdrawals', requirePermission(PERMISSIONS.MANAGE_WITHDRAWALS), adminListController.listWithdrawals);
 router.get('/payouts/float', requirePermission(PERMISSIONS.MANAGE_WITHDRAWALS), withdrawalController.adminPayoutFloat);
 router.patch(
   '/withdrawals/:id/process',
@@ -57,8 +66,29 @@ router.patch(
   withdrawalController.adminRejectWithdrawal
 );
 
-router.get('/ledger', requirePermission(PERMISSIONS.VIEW_LEDGER), adminController.getLedger);
-router.get('/audit-logs', requirePermission(PERMISSIONS.VIEW_AUDIT_LOGS), adminController.getAuditLogs);
+router.get('/ledger', requirePermission(PERMISSIONS.VIEW_LEDGER), adminListController.listLedger);
+router.get('/reports/summary', requirePermission(PERMISSIONS.VIEW_LEDGER), adminController.getReportSummary);
+
+router.get('/adjustments', requirePermission(PERMISSIONS.VIEW_LEDGER), adminListController.listAdjustments);
+router.post(
+  '/adjustments',
+  requirePermission(PERMISSIONS.ADJUST_BALANCES),
+  validate(adjustmentRequestSchema),
+  adminController.requestAdjustment
+);
+router.patch(
+  '/adjustments/:id/approve',
+  requirePermission(PERMISSIONS.ADJUST_BALANCES),
+  validate(adjustmentApproveSchema),
+  adminController.approveAdjustment
+);
+router.patch(
+  '/adjustments/:id/reject',
+  requirePermission(PERMISSIONS.ADJUST_BALANCES),
+  validate(adjustmentRejectSchema),
+  adminController.rejectAdjustment
+);
+router.get('/audit-logs', requirePermission(PERMISSIONS.VIEW_AUDIT_LOGS), adminListController.listAuditLogs);
 
 router.get('/settings', requirePermission(PERMISSIONS.VIEW_ONLY), adminController.getSettings);
 router.patch(

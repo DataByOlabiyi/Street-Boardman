@@ -46,6 +46,7 @@ async function resetDatabase() {
   await prisma.withdrawal.deleteMany();
   await prisma.deposit.deleteMany();
   await prisma.walletTransaction.deleteMany();
+  await prisma.walletAdjustment.deleteMany();
   await prisma.wallet.deleteMany();
   await prisma.user.deleteMany();
   await prisma.systemSetting.deleteMany();

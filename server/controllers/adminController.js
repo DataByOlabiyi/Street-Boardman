@@ -3,6 +3,8 @@ const prisma = require('../config/db');
 const adminService = require('../services/adminService');
 const settingsService = require('../services/settingsService');
 const resultService = require('../services/resultService');
+const adjustmentService = require('../services/adjustmentService');
+const reportService = require('../services/reportService');
 const { STAFF_VISIBLE_USER_FIELDS } = require('../utils/userSelect');
 
 const listPendingBoardmen = asyncHandler(async (req, res) => {
@@ -28,10 +30,6 @@ const suspendBoardman = asyncHandler(async (req, res) => {
   res.json({ boardman });
 });
 
-const listUsers = asyncHandler(async (req, res) => {
-  res.json({ users: await adminService.listUsers() });
-});
-
 const suspendUser = asyncHandler(async (req, res) => {
   const user = await adminService.suspendUser(req.params.id, req.user.id);
   res.json({ user });
@@ -47,27 +45,6 @@ const setStaffRole = asyncHandler(async (req, res) => {
   res.json({ user });
 });
 
-const listCompetitions = asyncHandler(async (req, res) => {
-  const competitions = await prisma.competition.findMany({
-    include: {
-      betOptions: true,
-      result: true,
-      boardmanProfile: { include: { user: { select: STAFF_VISIBLE_USER_FIELDS } } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  res.json({ competitions });
-});
-
-const listBets = asyncHandler(async (req, res) => {
-  const bets = await prisma.bet.findMany({
-    include: { better: { select: { fullName: true, phone: true } }, betOption: { include: { competition: true } } },
-    orderBy: { placedAt: 'desc' },
-    take: 200,
-  });
-  res.json({ bets });
-});
-
 const listDisputes = asyncHandler(async (req, res) => {
   const disputes = await prisma.dispute.findMany({
     include: { competition: true, raisedByUser: { select: { fullName: true, phone: true } } },
@@ -81,13 +58,23 @@ const resolveDispute = asyncHandler(async (req, res) => {
   res.json({ outcome });
 });
 
-const getLedger = asyncHandler(async (req, res) => {
-  res.json({ transactions: await adminService.getFinancialLedger() });
+const requestAdjustment = asyncHandler(async (req, res) => {
+  const adjustment = await adjustmentService.requestAdjustment(req.body, req.user.id);
+  res.status(201).json({ adjustment });
 });
 
-const getAuditLogs = asyncHandler(async (req, res) => {
-  const logs = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
-  res.json({ logs });
+const approveAdjustment = asyncHandler(async (req, res) => {
+  const adjustment = await adjustmentService.approveAdjustment(req.params.id, req.user.id, req.body.note);
+  res.json({ adjustment });
+});
+
+const rejectAdjustment = asyncHandler(async (req, res) => {
+  const adjustment = await adjustmentService.rejectAdjustment(req.params.id, req.user.id, req.body.note);
+  res.json({ adjustment });
+});
+
+const getReportSummary = asyncHandler(async (req, res) => {
+  res.json({ report: await reportService.summary(req.query) });
 });
 
 const getSettings = asyncHandler(async (req, res) => {
@@ -125,16 +112,15 @@ module.exports = {
   approveBoardman,
   rejectBoardman,
   suspendBoardman,
-  listUsers,
   suspendUser,
   reactivateUser,
   setStaffRole,
-  listCompetitions,
-  listBets,
   listDisputes,
   resolveDispute,
-  getLedger,
-  getAuditLogs,
+  requestAdjustment,
+  approveAdjustment,
+  rejectAdjustment,
+  getReportSummary,
   getSettings,
   updateSettings,
   getOverview,
