@@ -60,10 +60,13 @@ function stripPng(buffer) {
   throw new AppError('This PNG is damaged', 422);
 }
 
-async function saveEvidence(userId, buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+async function saveEvidence(userId, body) {
+  // express.raw gives a Buffer; a JSON body could be an object, array or
+  // string. Only a non-empty Buffer goes further.
+  if (typeof body === 'string' || Array.isArray(body) || !Buffer.isBuffer(body) || body.length === 0) {
     throw new AppError('Send the photo as the request body (Content-Type image/jpeg or image/png)', 422);
   }
+  const buffer = Buffer.from(body);
   if (buffer.length > MAX_BYTES) throw new AppError('Photos can be at most 5 MB', 413);
   const ext = detectType(buffer);
   if (!ext) throw new AppError('Only JPEG and PNG photos are accepted', 415);
@@ -76,11 +79,15 @@ async function saveEvidence(userId, buffer) {
   });
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 async function readEvidence(id) {
+  if (typeof id !== 'string' || !UUID.test(id)) throw new AppError('Not found', 404);
   const upload = await prisma.upload.findUnique({ where: { id } });
   if (!upload) throw new AppError('Not found', 404);
   const ext = upload.contentType === 'image/png' ? 'png' : 'jpg';
-  const bytes = await storage.get(`${id}.${ext}`);
+  // The storage key comes from our own record, never the URL.
+  const bytes = await storage.get(`${upload.id}.${ext}`);
   if (!bytes) throw new AppError('Not found', 404);
   return { contentType: upload.contentType, bytes };
 }
