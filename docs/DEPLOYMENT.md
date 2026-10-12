@@ -89,6 +89,8 @@ aws secretsmanager put-secret-value --secret-id streetboardman-prod/paystack-web
 
 **SMS (Termii)**, for OTPs and notifications (won bets, cancellations, withdrawals). Not in Terraform yet: a random placeholder key would make a DEMO environment call Termii and fail. When you have a Termii account and an approved sender ID, add the key as a secret and pass it to the API and worker as `TERMII_API_KEY` (plus `TERMII_SENDER_ID`). Without it, DEMO logs messages instead of sending them and PRODUCTION refuses to send (OTP requests return 501). Notifications are queued in the `Notification` table and sent by the worker every minute, with up to 5 attempts; one that still fails is marked `FAILED` and raises an error-tracking alert.
 
+**Evidence photos** are stored on the API container's disk at `UPLOAD_DIR` (default `/app/uploads`; a named volume in `docker-compose.yml`). That suits one server. Back up the volume alongside the database. On AWS (several API tasks, no shared disk) it needs S3 behind the same `services/storage` interface before uploads are used.
+
 **Rotating a secret.** It's manual on purpose: automatic rotation would sign every user out at random times.
 - *JWT secrets:* taint and re-apply, then redeploy. Everyone is signed out and logs in again. Do it at a quiet hour and after any suspected leak.
   `terraform apply -var-file=envs/prod.tfvars -replace='random_password.jwt["access"]'` (and/or `refresh`, `mfa-challenge`)

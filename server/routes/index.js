@@ -10,6 +10,7 @@ router.use('/withdrawals', require('./withdrawals'));
 router.use('/competitions', require('./competitions'));
 router.use('/bets', require('./bets'));
 router.use('/notifications', require('./notifications'));
+router.use('/uploads', require('./uploads'));
 router.use('/admin', require('./admin'));
 
 module.exports = router;

@@ -177,6 +177,7 @@ model User {
   commissionsEarned Commission[]
   kycVerifications KycVerification[]
   notifications        Notification[]
+  uploads              Upload[]
   adjustmentsRequested WalletAdjustment[] @relation("AdjustmentRequestedBy")
   adjustmentsReviewed  WalletAdjustment[] @relation("AdjustmentReviewedBy")
 
@@ -613,4 +614,21 @@ model Notification {
 
   @@index([status, createdAt])
   @@index([userId, createdAt])
+}
+
+// Files users upload (FEAT-042: photos as result evidence). The bytes live
+// in storage (local disk for now, see services/storage); this row records
+// who uploaded what, and which result it was attached to, so a Boardman
+// can only attach their own, unused uploads.
+model Upload {
+  id                 String   @id
+  ownerUserId        String
+  owner              User     @relation(fields: [ownerUserId], references: [id])
+  purpose            String
+  contentType        String
+  sizeBytes          Int
+  attachedToResultId String?
+  createdAt          DateTime @default(now())
+
+  @@index([ownerUserId])
 }

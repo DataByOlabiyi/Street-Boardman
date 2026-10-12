@@ -174,7 +174,9 @@ by `/auth/login` and the two `/auth/register/*` routes).
 | PATCH | `/competitions/:id` | BOARDMAN, owner | `{ title?, description?, bettingDeadline? }` while `BETTING_OPEN`; title only before the first bet; options and rates never change |
 | POST | `/competitions/:id/cancel` | BOARDMAN, owner | `{ reason }`; refunds every stake, no commission; only before a result is submitted |
 | GET | `/competitions/:id/bets` | BOARDMAN, owner | Bets received |
-| POST | `/competitions/:id/result` | BOARDMAN, owner | `BETTING_CLOSED -> PENDING_CONFIRMATION` |
+| POST | `/competitions/:id/result` | BOARDMAN, owner | `BETTING_CLOSED -> PENDING_CONFIRMATION`. Evidence: `evidenceUrls` (https links) and/or `evidenceUploadIds` (own, unused uploads), 10 max |
+| POST | `/uploads/evidence` | BOARDMAN | Body is the photo itself, `Content-Type: image/jpeg` or `image/png`, ≤ 5 MB, 30/hour. Type checked from the bytes; EXIF/GPS and PNG text stripped. Returns `{ upload: { id, url } }` |
+| GET | `/uploads/evidence/:id` | none | The stored photo (random UUID URL) |
 | POST | `/competitions/:id/dispute` | any authenticated | `PENDING_CONFIRMATION -> DISPUTED` |
 | POST | `/bets` | BETTER | `{ betOptionId, stake }`, rate-limited |
 | GET | `/bets/me` | BETTER | Own bet history |

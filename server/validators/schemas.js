@@ -152,6 +152,8 @@ const submitResultSchema = z.object({
   winningOptionId: z.string().min(1),
   finalScore: z.string().optional(),
   evidenceUrls: z.array(httpsUrl).max(10).optional(),
+  // Photos uploaded through POST /api/uploads/evidence (FEAT-042).
+  evidenceUploadIds: z.array(z.string().uuid()).max(10).optional(),
   notes: z.string().optional(),
 });
 

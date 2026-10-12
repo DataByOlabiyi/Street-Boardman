@@ -66,6 +66,9 @@ services:
       context: .
       target: api
     environment: *app-env
+    # Evidence photos (FEAT-042) outlive the container.
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -114,3 +117,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

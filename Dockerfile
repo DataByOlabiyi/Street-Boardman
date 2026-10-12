@@ -44,6 +44,8 @@ RUN npm prune --omit=dev
 
 FROM base AS runtime
 ENV NODE_ENV=production
+# Evidence photos (FEAT-042); a volume is mounted here in compose.
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY prisma ./prisma
