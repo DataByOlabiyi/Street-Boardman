@@ -1,6 +1,7 @@
 const asyncHandler = require('../utils/asyncHandler');
 const prisma = require('../config/db');
 const competitionService = require('../services/competitionService');
+const { withOptionTotals } = require('../services/optionTotals');
 const AppError = require('../utils/appError');
 const { browseCompetitionsQuery } = require('../validators/schemas');
 
@@ -55,6 +56,7 @@ const listMyCompetitions = asyncHandler(async (req, res) => {
     include: { betOptions: true, result: true },
     orderBy: { createdAt: 'desc' },
   });
+  await withOptionTotals(competitions);
   res.json({ competitions });
 });
 

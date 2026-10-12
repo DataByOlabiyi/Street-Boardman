@@ -5,6 +5,7 @@ const { SETTING_KEYS } = require('../config/constants');
 const payoutService = require('./payoutService');
 const boardmanTrustService = require('./boardmanTrustService');
 const { poolView } = require('./poolService');
+const { withOptionTotals } = require('./optionTotals');
 const { recordAuditLog } = require('../middleware/auditLog');
 
 async function createCompetition(boardmanProfile, { title, description, category, bettingDeadline, participants, options }) {
@@ -29,7 +30,7 @@ async function createCompetition(boardmanProfile, { title, description, category
     throw new AppError('Combined Boardman and platform commission rates must be below 100%', 422);
   }
 
-  return prisma.competition.create({
+  const created = await prisma.competition.create({
     data: {
       boardmanProfileId: boardmanProfile.id,
       title,
@@ -44,6 +45,7 @@ async function createCompetition(boardmanProfile, { title, description, category
     },
     include: { participants: true, betOptions: true },
   });
+  return withOptionTotals(created);
 }
 
 // Public browse (FEAT-043): search across title, description and
@@ -84,6 +86,7 @@ async function listOpenCompetitions(query = {}) {
     orderBy: sort === 'newest' ? { createdAt: 'desc' } : { bettingDeadline: 'asc' },
     take: OPEN_LIST_CAP,
   });
+  await withOptionTotals(matches);
 
   const withPool = matches.map((c) => ({ competition: c, pool: poolView(c) }));
   if (sort === 'pool') withPool.sort((a, b) => Number(b.pool.totalPool) - Number(a.pool.totalPool));
@@ -115,6 +118,7 @@ async function getPublicCompetition(id) {
     },
   });
   if (!competition) throw new AppError('Competition not found', 404);
+  await withOptionTotals(competition);
   const [pool, cards] = await Promise.all([
     poolForCompetition(competition),
     boardmanTrustService.publicCards([competition.boardmanProfile]),
@@ -129,6 +133,7 @@ async function getLivePool(id) {
     select: { id: true, status: true, bettingDeadline: true, boardmanCommissionRate: true, platformCommissionRate: true, betOptions: true },
   });
   if (!competition) throw new AppError('Competition not found', 404);
+  await withOptionTotals(competition);
   return { id, status: competition.status, bettingDeadline: competition.bettingDeadline, pool: await poolForCompetition(competition) };
 }
 
@@ -147,7 +152,7 @@ async function getCompetitionById(id) {
     include: { betOptions: true, participants: true, result: true },
   });
   if (!competition) throw new AppError('Competition not found', 404);
-  return competition;
+  return withOptionTotals(competition);
 }
 
 async function closeBetting(boardmanProfileId, competitionId) {
@@ -222,7 +227,10 @@ async function updateCompetition(boardmanProfileId, competitionId, changes, acto
       },
       tx
     );
-    return tx.competition.findUnique({ where: { id: competitionId }, include: { betOptions: true } });
+    return withOptionTotals(
+      await tx.competition.findUnique({ where: { id: competitionId }, include: { betOptions: true } }),
+      tx
+    );
   });
 }
 

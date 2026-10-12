@@ -340,10 +340,23 @@ model BetOption {
   competition   Competition @relation(fields: [competitionId], references: [id])
   label         String
   participantId String?
-  totalStaked   Decimal     @default(0) @db.Decimal(14, 2)
 
   bets           Bet[]
   winningResults Result[]
+  stakeShards    BetOptionShard[]
+}
+
+// An option's running stake total, split across a few rows (TASK-048). One
+// row per option made every bet on a busy match queue on the same row
+// lock (p95 ~10 s at 400 bettors); each bet now adds to a random shard,
+// and readers sum the shards (see services/optionTotals.js).
+model BetOptionShard {
+  betOptionId String
+  betOption   BetOption @relation(fields: [betOptionId], references: [id])
+  shard       Int
+  totalStaked Decimal   @default(0) @db.Decimal(14, 2)
+
+  @@id([betOptionId, shard])
 }
 
 model Bet {

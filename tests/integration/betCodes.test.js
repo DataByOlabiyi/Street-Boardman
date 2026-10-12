@@ -2,6 +2,7 @@ const { resetDatabase, prisma } = require('../helpers/reset');
 const walletService = require('../../server/services/walletService');
 const depositService = require('../../server/services/depositService');
 const bettingService = require('../../server/services/bettingService');
+const { totalsFor } = require('../../server/services/optionTotals');
 
 // Bet codes used to be count(bets) + 1, so concurrent bets got the same
 // code and failed with a 500. The k6 hot-competition load test (TASK-048)
@@ -85,12 +86,15 @@ describe('Bet codes under concurrency', () => {
     expect(second.betOption.totalStaked.toString()).toBe('2000');
   });
 
-  it('keeps the option total exact under concurrent bets', async () => {
+  it('keeps the option total exact under concurrent bets, across shards', async () => {
     await Promise.all(Array.from({ length: 20 }, (_, i) =>
       bettingService.placeBet({ betterId: bettorIds[i % bettorIds.length], betOptionId, stake: 100 })
     ));
-    const option = await prisma.betOption.findUnique({ where: { id: betOptionId } });
-    expect(option.totalStaked.toString()).toBe('2000');
+    // Summed across shards (TASK-048): no increment lost to a race.
+    const totals = await totalsFor([betOptionId]);
+    expect(totals.get(betOptionId).toString()).toBe('2000');
+    // ...and the 20 concurrent bets didn't all queue on one row.
+    expect(await prisma.betOptionShard.count({ where: { betOptionId } })).toBeGreaterThan(1);
   });
 
   it('never reissues a code after a bet is deleted', async () => {

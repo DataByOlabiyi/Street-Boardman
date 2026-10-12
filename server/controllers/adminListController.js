@@ -4,6 +4,7 @@ const prisma = require('../config/db');
 const { STAFF_VISIBLE_USER_FIELDS } = require('../utils/userSelect');
 const { parseListQuery, dateRange, runList } = require('../utils/listQuery');
 const { adjustmentInclude } = require('../services/adjustmentService');
+const { withOptionTotals } = require('../services/optionTotals');
 
 // Admin back-office lists (FEAT-045): every list pages, filters and
 // exports to CSV (?format=csv) the same way. Response keys are unchanged
@@ -62,6 +63,7 @@ const listCompetitions = asyncHandler(async (req, res) => {
     req, res, q, where,
     model: prisma.competition,
     include: { betOptions: true, result: true, boardmanProfile: { include: { user: staffUser } } },
+    decorate: withOptionTotals,
     orderBy: { createdAt: 'desc' },
     key: 'competitions',
     resource: 'competitions',

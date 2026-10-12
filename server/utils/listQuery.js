@@ -29,9 +29,11 @@ function dateRange(q) {
 }
 
 // Runs the query as a page (JSON) or as one capped export (CSV).
-async function runList({ req, res, q, model, where, orderBy, include, select, key, columns, resource }) {
+// `decorate` fills in derived fields (e.g. option totals) on the loaded rows.
+async function runList({ req, res, q, model, where, orderBy, include, select, key, columns, resource, decorate }) {
   if (q.format === 'csv') {
     const rows = await model.findMany({ where, orderBy, include, select, take: MAX_EXPORT_ROWS });
+    if (decorate) await decorate(rows);
     // Exports are the easiest way to take data out in bulk, so each one is
     // on the audit trail with who asked for what.
     await recordAuditLog({
@@ -49,6 +51,7 @@ async function runList({ req, res, q, model, where, orderBy, include, select, ke
     model.findMany({ where, orderBy, include, select, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
     model.count({ where }),
   ]);
+  if (decorate) await decorate(items);
   return res.json({ [key]: items, page: { page: q.page, pageSize: q.pageSize, total } });
 }
 

@@ -179,11 +179,10 @@ async function processPayoutsForCompetition(competitionId) {
     competition.platformCommissionRate
   );
 
-  const payouts = commissionService.calculateWinnerPayouts(
-    winningBets,
-    winningOption.totalStaked,
-    commission.distributablePool
-  );
+  // The winning side's total straight from its bets: exact, and the same
+  // set of bets being paid.
+  const winningTotal = winningBets.reduce((sum, b) => sum.plus(toDecimal(b.stake)), toDecimal(0));
+  const payouts = commissionService.calculateWinnerPayouts(winningBets, winningTotal, commission.distributablePool);
 
   for (const { betId, amount } of payouts) {
     const bet = winningBets.find((b) => b.id === betId);
